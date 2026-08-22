@@ -132,6 +132,7 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; } .topbar p { margin
 .calibration-card > div:first-child { display: grid; gap: 3px; }
 .calibration-card span { color: var(--accent-strong); font-size: .62rem; font-weight: 850; letter-spacing: .12em; }
 .calibration-card strong { font-size: .78rem; }
+.native-fast { width: fit-content; margin-top: 2px; padding: 3px 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-strong); font-size: .6rem; font-style: normal; font-weight: 800; }
 .calibration-card > div:last-child { display: flex; justify-content: flex-end; gap: 16px; }
 .calibration-card small { color: var(--faint); font-size: .68rem; }
 .calibration-card small strong { color: var(--accent-strong); }

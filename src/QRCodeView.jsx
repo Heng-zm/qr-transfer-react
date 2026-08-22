@@ -72,7 +72,7 @@ export default function QRCodeView({ value, size = 320 }) {
         const x = (QUIET_ZONE + column + .5) * cell
         const y = (QUIET_ZONE + row + .5) * cell
         context.beginPath()
-        context.arc(x, y, cell * .43, 0, Math.PI * 2)
+        context.arc(x, y, cell * .465, 0, Math.PI * 2)
         context.fill()
       }
     }

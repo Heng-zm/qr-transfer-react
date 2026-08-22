@@ -27,7 +27,7 @@ export default function Sender() {
   const [transfer, setTransfer] = useState(null)
   const [frameIndex, setFrameIndex] = useState(0)
   const [playing, setPlaying] = useState(true)
-  const [speed, setSpeed] = useState(360)
+  const [speed, setSpeed] = useState(260)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const qrStageRef = useRef(null)
@@ -118,7 +118,7 @@ export default function Sender() {
         <div className="timeline"><div className="progress-track" aria-label={`Frame ${frameIndex + 1} of ${transfer.frames.length}`}><div className="progress-fill" style={{ width: `${percent}%` }} /></div><div className="frame-controls"><button className="icon-button" onClick={() => stepFrame(-1)} aria-label="Previous frame"><Icon name="chevronLeft" /></button><button className="primary-button play-button" onClick={() => setPlaying((value) => !value)}><Icon name={playing ? 'pause' : 'play'} size={18} /> {playing ? 'Pause' : 'Play'}</button><button className="icon-button" onClick={() => stepFrame(1)} aria-label="Next frame"><Icon name="chevronRight" /></button></div></div>
         <div className="recovery-callout"><span><Icon name="shield" size={20} /></span><div><strong>Built to survive missed scans</strong><small>Recovery frames can rebuild one missing QR in every eight-frame group.</small></div></div>
         <div className="transfer-summary"><div><span>Transfer</span><strong title={transfer.name}>{transfer.name}</strong></div><div><span>Size</span><strong>{formatBytes(transfer.originalBytes)}</strong></div><div><span>QR frames</span><strong>{transfer.dataFrames} data + {transfer.recoveryFrames} recovery</strong></div><div><span>Compression</span><strong>{savings ? `${savings}% smaller` : formatBytes(transfer.compressedBytes)}</strong></div></div>
-        <div className="control-row split-controls"><label className="select-control"><span>Scan speed</span><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={220}>Fast · 4.5 fps</option><option value={360}>Balanced · 2.8 fps</option><option value={520}>Easy · 1.9 fps</option><option value={750}>Slow · 1.3 fps</option></select></label><div className="sender-actions">{wakeActive && <span className="awake-badge"><Icon name="awake" size={15} /> Screen awake</span>}<button className="secondary-button" onClick={enterFullscreen}><Icon name="maximize" size={18} /> Fullscreen</button></div></div>
+        <div className="control-row split-controls"><label className="select-control"><span>Transfer speed</span><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={160}>Turbo · 6.3 fps</option><option value={240}>Fast · 4.2 fps</option><option value={260}>Smart fast · 3.8 fps</option><option value={420}>Easy · 2.4 fps</option><option value={650}>Slow · 1.5 fps</option></select></label><div className="sender-actions">{wakeActive && <span className="awake-badge"><Icon name="awake" size={15} /> Screen awake</span>}<button className="secondary-button" onClick={enterFullscreen}><Icon name="maximize" size={18} /> Fullscreen</button></div></div>
         {error && <div className="error-box" role="alert">{error}</div>}
       </section>
     )

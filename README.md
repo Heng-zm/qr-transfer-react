@@ -12,6 +12,7 @@ A React/Vite app that transfers text and files by showing animated QR codes on t
 - XOR recovery frames that reconstruct one missing data frame per eight-frame group
 - Burst-resistant frame ordering that spreads related frames across the animation
 - Automatic camera calibration with a recommended sender speed
+- Native accelerated QR detection where the browser supports it
 - Multi-image QR screenshot importing as an alternative to live camera scanning
 - Copy feedback, offline file download, and clear integrity status
 
