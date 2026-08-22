@@ -7,6 +7,7 @@ A React/Vite app that transfers text and files by showing animated QR codes on t
 - Responsive dark and light themes
 - Drag-and-drop file selection with live transfer estimates
 - Adjustable QR animation speed, frame stepping, and fullscreen display
+- Circular dot-matrix QR styling with scan-safe finder markers
 - Live camera scan progress and camera switching
 - XOR recovery frames that reconstruct one missing data frame per eight-frame group
 - Burst-resistant frame ordering that spreads related frames across the animation
