@@ -43,10 +43,12 @@ export default function Receiver({ active = true }) {
   const qualitySamplesRef = useRef([])
   const cameraBaseScoreRef = useRef(0)
   const importSessionRef = useRef(0)
-  const nativeScanFrameRef = useRef(0)
+  const nativeScanCancelRef = useRef(null)
   const nativeScanBusyRef = useRef(false)
   const nativeLastScanAtRef = useRef(0)
+  const nativeMissStreakRef = useRef(0)
   const smartScanCycleRef = useRef(0)
+  const smartCropAvailableRef = useRef(true)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready to scan')
   const [progress, setProgress] = useState({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] })
@@ -73,7 +75,7 @@ export default function Receiver({ active = true }) {
     try { controlsRef.current?.stop() } catch {}
     clearTimeout(copyTimerRef.current)
     clearTimeout(trackingTimerRef.current)
-    cancelAnimationFrame(nativeScanFrameRef.current)
+    cancelNativeScanLoop()
     importSessionRef.current += 1
   }, [])
 
@@ -87,7 +89,8 @@ export default function Receiver({ active = true }) {
     return () => document.removeEventListener('fullscreenchange', syncFullscreen)
   }, [])
 
-  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelAnimationFrame(nativeScanFrameRef.current); nativeScanFrameRef.current = 0; nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; smartScanCycleRef.current = 0; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setNativeFastScan(false); setScanning(false) }
+  function cancelNativeScanLoop() { try { nativeScanCancelRef.current?.() } catch {} nativeScanCancelRef.current = null }
+  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelNativeScanLoop(); nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; nativeMissStreakRef.current = 0; smartScanCycleRef.current = 0; smartCropAvailableRef.current = true; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setNativeFastScan(false); setScanning(false) }
   function resetTransfer() { importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; scanRateStartCountRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }); setFullScreen(false) }
 
   function pauseScanner() {
@@ -120,17 +123,35 @@ export default function Receiver({ active = true }) {
     const qrWidth = Math.max(...xs) - Math.min(...xs)
     const qrHeight = Math.max(...ys) - Math.min(...ys)
     const coverage = Math.max(qrWidth / video.videoWidth, qrHeight / video.videoHeight)
-    if (!Number.isFinite(coverage) || coverage <= 0 || coverage >= .44) return
+    if (!Number.isFinite(coverage) || coverage <= 0) return
 
     const current = Number(track.getSettings?.().zoom) || capability.min || 1
     const step = Math.max(Number(capability.step) || .1, .08)
-    const desired = Math.min(capability.max, current * Math.min(1.55, .44 / coverage))
-    const target = Math.min(capability.max, Math.round(desired / step) * step)
-    if (!Number.isFinite(target) || target < current + step) return
+    let desired = current
+    if (coverage < .34) desired = current * Math.min(1.5, .42 / coverage)
+    else if (coverage > .62 && current > capability.min) desired = current * Math.max(.65, .44 / coverage)
+    else return
+    desired = Math.max(capability.min, Math.min(capability.max, desired))
+    const target = Math.max(capability.min, Math.min(capability.max, capability.min + Math.round((desired - capability.min) / step) * step))
+    if (!Number.isFinite(target) || Math.abs(target - current) < step * .75) return
 
     lastZoomAtRef.current = now
     track.applyConstraints({ advanced: [{ zoom: target }] })
-      .then(() => { if (videoTrackRef.current === track) setAutoZoom(target) })
+      .then(() => { if (videoTrackRef.current === track) setAutoZoom(target > capability.min + step * .5 ? target : 0) })
+      .catch(() => { if (videoTrackRef.current === track) { zoomCapabilityRef.current = null; setAutoZoom(0) } })
+  }
+
+  function relaxCameraZoom() {
+    const track = videoTrackRef.current
+    const capability = zoomCapabilityRef.current
+    const now = performance.now()
+    if (!track || !capability || now - lastZoomAtRef.current < 900) return
+    const current = Number(track.getSettings?.().zoom) || capability.min || 1
+    const step = Math.max(Number(capability.step) || .1, .08)
+    if (current <= capability.min + step * .5) return
+    lastZoomAtRef.current = now
+    track.applyConstraints({ advanced: [{ zoom: capability.min }] })
+      .then(() => { if (videoTrackRef.current === track) setAutoZoom(0) })
       .catch(() => { if (videoTrackRef.current === track) { zoomCapabilityRef.current = null; setAutoZoom(0) } })
   }
 
@@ -242,7 +263,15 @@ export default function Receiver({ active = true }) {
   function startNativeDetection(session, detector) {
     setNativeFastScan(true)
     const schedule = (scan) => {
-      if (session === scanSessionRef.current) nativeScanFrameRef.current = requestAnimationFrame(scan)
+      if (session !== scanSessionRef.current) return
+      const video = videoRef.current
+      if (video?.requestVideoFrameCallback) {
+        const callbackId = video.requestVideoFrameCallback((timestamp) => scan(timestamp))
+        nativeScanCancelRef.current = () => video.cancelVideoFrameCallback(callbackId)
+      } else {
+        const frameId = requestAnimationFrame(scan)
+        nativeScanCancelRef.current = () => cancelAnimationFrame(frameId)
+      }
     }
     const scan = async (timestamp) => {
       const video = videoRef.current
@@ -253,21 +282,33 @@ export default function Receiver({ active = true }) {
       nativeLastScanAtRef.current = timestamp
       try {
         smartScanCycleRef.current += 1
-        const useFocusedPass = smartScanCycleRef.current % 3 === 0 && !trackingHistoryRef.current
-        const smartSource = useFocusedPass ? createSmartScanSource(video) : null
-        const detected = await detector.detect(smartSource?.source || video)
+        const useFocusedPass = smartCropAvailableRef.current && smartScanCycleRef.current % 3 === 0 && !trackingHistoryRef.current
+        let smartSource = useFocusedPass ? createSmartScanSource(video) : null
+        let detected
+        try { detected = await detector.detect(smartSource?.source || video) }
+        catch (error) {
+          if (!smartSource) throw error
+          smartCropAvailableRef.current = false
+          smartSource = null
+          detected = await detector.detect(video)
+        }
+        let decodedAny = false
         for (const barcode of detected) {
           if (!barcode.rawValue) continue
-          const sourceCorners = barcode.cornerPoints?.length >= 4 ? barcode.cornerPoints : [
-            { x: barcode.boundingBox.left, y: barcode.boundingBox.top },
-            { x: barcode.boundingBox.right, y: barcode.boundingBox.top },
-            { x: barcode.boundingBox.right, y: barcode.boundingBox.bottom },
-            { x: barcode.boundingBox.left, y: barcode.boundingBox.bottom },
-          ]
+          decodedAny = true
+          const box = barcode.boundingBox
+          const sourceCorners = barcode.cornerPoints?.length >= 4 ? barcode.cornerPoints : box ? [
+            { x: box.left, y: box.top },
+            { x: box.right, y: box.top },
+            { x: box.right, y: box.bottom },
+            { x: box.left, y: box.bottom },
+          ] : []
           const corners = smartSource ? sourceCorners.map(smartSource.mapPoint) : sourceCorners
-          const adaptedResult = { getText: () => barcode.rawValue, getResultPoints: () => [corners[3], corners[0], corners[1]] }
+          const adaptedResult = { getText: () => barcode.rawValue, getResultPoints: () => corners.length >= 4 ? [corners[3], corners[0], corners[1]] : [] }
           await processDecodedResult(adaptedResult, true)
         }
+        nativeMissStreakRef.current = decodedAny ? 0 : nativeMissStreakRef.current + 1
+        if (nativeMissStreakRef.current >= 22) { relaxCameraZoom(); nativeMissStreakRef.current = 12 }
       } catch {}
       finally { nativeScanBusyRef.current = false; schedule(scan) }
     }
@@ -307,6 +348,7 @@ export default function Receiver({ active = true }) {
       }
       if (session !== scanSessionRef.current) { controls.stop(); return }
       controlsRef.current = controls
+      try { videoRef.current.contentHint = 'detail' } catch {}
       const videoTrack = videoRef.current?.srcObject?.getVideoTracks?.()[0]
       videoTrackRef.current = videoTrack || null
       let supportsTorch = false
