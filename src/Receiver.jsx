@@ -59,6 +59,7 @@ export default function Receiver({ active = true }) {
     const bottomLeft = point(rawPoints[0])
     const topLeft = point(rawPoints[1])
     const topRight = point(rawPoints[2])
+    if (![bottomLeft, topLeft, topRight].every(({ x, y }) => Number.isFinite(x) && Number.isFinite(y))) return
     const bottomRight = { x: bottomLeft.x + topRight.x - topLeft.x, y: bottomLeft.y + topRight.y - topLeft.y }
     const width = video.clientWidth
     const height = video.clientHeight
@@ -134,7 +135,21 @@ export default function Receiver({ active = true }) {
     <section className="panel receiver-panel">
       <div className="panel-heading"><div><div className="step-label">RECEIVE MODE</div><h2>{result ? 'Your transfer is ready' : 'Scan the sender screen'}</h2><p>{result ? 'Integrity checked. The content is safe to open.' : 'Center the animated QR code inside the frame.'}</p></div>{(progress.received > 0 || result) && <button className="ghost-button compact" onClick={() => { stopScanner(); resetTransfer() }}><Icon name="reset" size={17} /> Reset</button>}</div>
 
-      {!result && <div className={`camera-shell ${scanning ? 'is-scanning' : ''}`}><video ref={videoRef} className="camera-view" muted playsInline /><div className="camera-overlay" /><div className="scan-frame"><span /><span /><span /><span /><i /></div>{!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera preview</strong><small>Your browser will ask for permission</small></div>}</div>}
+      {!result && (
+        <div className={`camera-shell ${scanning ? 'is-scanning' : ''} ${tracking?.valid ? 'has-lock' : ''}`}>
+          <video ref={videoRef} className="camera-view" muted playsInline />
+          <div className="camera-overlay" />
+          <div className="scan-frame"><span /><span /><span /><span /><i /></div>
+          {tracking && (
+            <svg className={`qr-tracker ${tracking.valid ? 'valid' : 'foreign'}`} viewBox={`0 0 ${tracking.width} ${tracking.height}`} aria-hidden="true">
+              <polygon points={tracking.points} />
+              <text x="50%" y="24">{tracking.valid ? 'BEAMQR LOCKED' : 'QR DETECTED'}</text>
+            </svg>
+          )}
+          {tracking?.valid && <div className="tracking-badge"><span /> QR locked</div>}
+          {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera preview</strong><small>Your browser will ask for permission</small></div>}
+        </div>
+      )}
 
       {!result && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}</div>}
 
