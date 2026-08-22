@@ -14,11 +14,18 @@ function Icon({ name, size = 20 }) {
 
 export default function App() {
   const [tab, setTab] = useState('send')
-  const [theme, setTheme] = useState(() => localStorage.getItem('qr-theme') || 'dark')
+  const [theme, setTheme] = useState(() => {
+    try {
+      return localStorage.getItem('qr-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
+    } catch {
+      return 'dark'
+    }
+  })
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
-    localStorage.setItem('qr-theme', theme)
+    document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#080b0f' : '#f1f4ed')
+    try { localStorage.setItem('qr-theme', theme) } catch {}
   }, [theme])
 
   return (
@@ -46,7 +53,8 @@ export default function App() {
         <button className={tab === 'receive' ? 'active' : ''} onClick={() => setTab('receive')} aria-pressed={tab === 'receive'}><Icon name="receive" /><span><strong>Receive</strong><small>Scan from camera</small></span></button>
       </nav>
 
-      <div className="content-enter" key={tab}>{tab === 'send' ? <Sender /> : <Receiver />}</div>
+      <div className="content-enter" hidden={tab !== 'send'}><Sender /></div>
+      <div className="content-enter" hidden={tab !== 'receive'}><Receiver active={tab === 'receive'} /></div>
       <footer><span className="footer-mark">B</span> BeamQR · Your data never leaves your devices</footer>
     </main>
   )

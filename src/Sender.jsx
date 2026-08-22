@@ -37,8 +37,10 @@ export default function Sender() {
   }, [transfer, playing, speed])
 
   const inputBytes = mode === 'text' ? encoder.encode(text).length : (file?.size || 0)
-  const estimatedFrames = inputBytes ? Math.max(1, Math.ceil((inputBytes * 1.38) / 650)) : 0
-  const canPrepare = inputBytes > 0 && inputBytes <= FILE_LIMIT
+  const hasContent = mode === 'text' ? inputBytes > 0 : Boolean(file)
+  const estimatedFrames = hasContent ? Math.max(1, Math.ceil((inputBytes * 1.38) / 650)) : 0
+  const canPrepare = hasContent && inputBytes <= FILE_LIMIT
+  const contentTooLarge = mode === 'text' && inputBytes > FILE_LIMIT
 
   function chooseFile(nextFile) {
     setError('')
@@ -66,7 +68,10 @@ export default function Sender() {
   }
 
   function stepFrame(direction) { setPlaying(false); setFrameIndex((current) => (current + direction + transfer.frames.length) % transfer.frames.length) }
-  async function enterFullscreen() { try { await qrStageRef.current?.requestFullscreen() } catch { setError('Fullscreen is not available in this browser.') } }
+  async function enterFullscreen() {
+    if (!qrStageRef.current?.requestFullscreen) { setError('Fullscreen is not available in this browser.'); return }
+    try { await qrStageRef.current.requestFullscreen() } catch { setError('Fullscreen could not be opened. Check your browser permissions.') }
+  }
 
   if (transfer) {
     const percent = ((frameIndex + 1) / transfer.frames.length) * 100
@@ -87,9 +92,9 @@ export default function Sender() {
     <section className="panel sender-panel">
       <div className="panel-heading"><div><div className="step-label">STEP 1 OF 2</div><h2>What are you sending?</h2><p>Choose text for notes and links, or send any file up to 2 MB.</p></div></div>
       <div className="segmented"><button className={mode === 'text' ? 'active' : ''} onClick={() => { setMode('text'); setError('') }}><Icon name="text" size={18} /> Text</button><button className={mode === 'file' ? 'active' : ''} onClick={() => { setMode('file'); setError('') }}><Icon name="file" size={18} /> File</button></div>
-      {mode === 'text' ? <div className="input-wrap"><textarea className="text-input" rows={8} placeholder="Paste a message, link, password, or note…" value={text} onChange={(event) => setText(event.target.value)} autoFocus /><div className="input-meta"><span>{text.length.toLocaleString()} characters</span>{text && <button onClick={() => setText('')}>Clear</button>}</div></div> : <label className={`drop-zone ${dragging ? 'dragging' : ''} ${file ? 'has-file' : ''}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true) }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); chooseFile(event.dataTransfer.files?.[0]) }}><input type="file" onChange={(event) => chooseFile(event.target.files?.[0])} /><span className="drop-icon"><Icon name={file ? 'file' : 'upload'} size={24} /></span><strong>{file ? file.name : 'Drop a file here'}</strong><small>{file ? `${formatBytes(file.size)} · Click to replace` : 'or click to browse · maximum 2 MB'}</small></label>}
+      {mode === 'text' ? <div className="input-wrap"><textarea className={`text-input ${contentTooLarge ? 'invalid' : ''}`} rows={8} placeholder="Paste a message, link, password, or note…" value={text} onChange={(event) => setText(event.target.value)} autoFocus aria-invalid={contentTooLarge} /><div className="input-meta"><span className={contentTooLarge ? 'limit-warning' : ''}>{contentTooLarge ? `${formatBytes(inputBytes)} — exceeds the 2 MB limit` : `${text.length.toLocaleString()} characters`}</span>{text && <button onClick={() => setText('')}>Clear</button>}</div></div> : <label className={`drop-zone ${dragging ? 'dragging' : ''} ${file ? 'has-file' : ''}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true) }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={(event) => { event.preventDefault(); setDragging(false); chooseFile(event.dataTransfer.files?.[0]) }}><input type="file" onClick={(event) => { event.currentTarget.value = '' }} onChange={(event) => chooseFile(event.target.files?.[0])} /><span className="drop-icon"><Icon name={file ? 'file' : 'upload'} size={24} /></span><strong>{file ? file.name : 'Drop a file here'}</strong><small>{file ? `${formatBytes(file.size)} · Click to replace` : 'or click to browse · maximum 2 MB'}</small></label>}
       {error && <div className="error-box" role="alert">{error}</div>}
-      <div className="prepare-row"><div className="estimate"><span>Estimated transfer</span><strong>{inputBytes ? `~${estimatedFrames} QR frame${estimatedFrames === 1 ? '' : 's'}` : 'Waiting for content'}</strong></div><button className="primary-button" disabled={!canPrepare || busy} onClick={prepare}>{busy ? <><span className="spinner" /> Preparing…</> : <>Create QR codes <span aria-hidden="true">→</span></>}</button></div>
+      <div className="prepare-row"><div className="estimate"><span>Estimated transfer</span><strong>{hasContent ? `~${estimatedFrames} QR frame${estimatedFrames === 1 ? '' : 's'}` : 'Waiting for content'}</strong></div><button className="primary-button" disabled={!canPrepare || busy} onClick={prepare}>{busy ? <><span className="spinner" /> Preparing…</> : <>Create QR codes <span aria-hidden="true">→</span></>}</button></div>
       <div className="privacy-note"><span>✓</span><p><strong>Stays on this device.</strong> Content is compressed and converted locally—nothing is uploaded.</p></div>
     </section>
   )

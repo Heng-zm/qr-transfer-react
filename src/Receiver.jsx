@@ -17,12 +17,15 @@ function Icon({ name, size = 20 }) {
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
-export default function Receiver() {
+export default function Receiver({ active = true }) {
   const videoRef = useRef(null)
   const controlsRef = useRef(null)
   const framesRef = useRef(new Map())
   const activeIdRef = useRef(null)
   const rebuildingRef = useRef(false)
+  const scanSessionRef = useRef(0)
+  const resultTextRef = useRef(null)
+  const copyTimerRef = useRef(null)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready when you are')
   const [progress, setProgress] = useState({ received: 0, total: 0 })
@@ -31,20 +34,30 @@ export default function Receiver() {
   const [cameraFacing, setCameraFacing] = useState('environment')
   const [copied, setCopied] = useState(false)
 
-  useEffect(() => () => stopScanner(), [])
+  useEffect(() => () => {
+    scanSessionRef.current += 1
+    try { controlsRef.current?.stop() } catch {}
+    clearTimeout(copyTimerRef.current)
+  }, [])
 
-  function stopScanner() { try { controlsRef.current?.stop() } catch {} controlsRef.current = null; setScanning(false) }
+  useEffect(() => {
+    if (!active) stopScanner()
+  }, [active])
+
+  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; setScanning(false) }
   function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false) }
 
   async function startScanner(nextFacing = cameraFacing, preserveProgress = false) {
     stopScanner()
+    const session = scanSessionRef.current
     if (!preserveProgress) resetTransfer()
     setError(''); setStatus('Starting camera…')
     if (!window.isSecureContext) { setError('Camera access requires HTTPS or localhost. Install the PWA first for fully offline use on iPhone or iPad.'); setStatus('Camera unavailable'); return }
+    if (!navigator.mediaDevices?.getUserMedia) { setError('Camera scanning is not supported by this browser.'); setStatus('Camera unavailable'); return }
     try {
       const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 35 })
       const controls = await reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 } } }, videoRef.current, async (scanResult) => {
-        if (!scanResult || rebuildingRef.current) return
+        if (session !== scanSessionRef.current || !scanResult || rebuildingRef.current) return
         const frame = parseFrame(scanResult.getText())
         if (!frame) { setStatus('That QR code is not a BeamQR transfer'); return }
         if (activeIdRef.current && frame.id !== activeIdRef.current) { setStatus('Different transfer found — keep scanning the original'); return }
@@ -60,16 +73,31 @@ export default function Receiver() {
           }
         }
       })
-      controlsRef.current = controls; setScanning(true); setStatus(progress.received ? 'Receiving frames…' : 'Looking for BeamQR codes…')
+      if (session !== scanSessionRef.current) { controls.stop(); return }
+      controlsRef.current = controls; setScanning(true); setStatus(framesRef.current.size ? 'Receiving frames…' : 'Looking for BeamQR codes…')
     } catch (e) {
-      setError(e?.name === 'NotAllowedError' ? 'Camera permission was denied. Allow access in your browser settings and try again.' : (e?.message || 'Could not start the camera.'))
+      if (session !== scanSessionRef.current) return
+      const cameraErrors = {
+        NotAllowedError: 'Camera permission was denied. Allow access in your browser settings and try again.',
+        NotFoundError: 'No camera was found on this device.',
+        NotReadableError: 'The camera is already being used by another app.',
+        OverconstrainedError: 'This camera does not support the requested settings.',
+      }
+      setError(cameraErrors[e?.name] || e?.message || 'Could not start the camera.')
       setStatus('Camera unavailable'); setScanning(false)
     }
   }
 
   async function flipCamera() { const next = cameraFacing === 'environment' ? 'user' : 'environment'; setCameraFacing(next); await startScanner(next, true) }
-  function saveResult() { if (!result) return; const blob = new Blob([result.bytes], { type: result.mime || 'application/octet-stream' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = result.name || 'received-file'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000) }
-  async function copyText() { if (!result) return; try { await navigator.clipboard.writeText(decoder.decode(result.bytes)); setCopied(true); setTimeout(() => setCopied(false), 1800) } catch { setError('Clipboard access was blocked. Select and copy the text manually.') } }
+  function saveResult() { if (!result) return; const blob = new Blob([result.bytes], { type: result.mime || 'application/octet-stream' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = result.name || 'received-file'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000) }
+  async function copyText() {
+    if (!result) return
+    try {
+      if (navigator.clipboard?.writeText) await navigator.clipboard.writeText(textResult)
+      else { resultTextRef.current?.select(); if (!document.execCommand('copy')) throw new Error('Copy failed') }
+      setCopied(true); clearTimeout(copyTimerRef.current); copyTimerRef.current = setTimeout(() => setCopied(false), 1800)
+    } catch { resultTextRef.current?.select(); setError('Clipboard access was blocked. The text has been selected so you can copy it manually.') }
+  }
 
   const percentage = progress.total ? Math.round((progress.received / progress.total) * 100) : 0
   const textResult = result?.kind === 'text' ? decoder.decode(result.bytes) : ''
@@ -85,7 +113,7 @@ export default function Receiver() {
       {!result && <div className="status-card"><div className="status-line"><div><span className={`status-indicator ${scanning ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><small>{progress.received} of {progress.total} unique frames captured</small></>}</div>}
       {error && <div className="error-box" role="alert">{error}</div>}
 
-      {result && <div className="result-card"><div className="success-orbit"><Icon name="shield" size={32} /></div><div className="success-badge">✓ SHA-256 verified</div><h3>{result.kind === 'text' ? 'Received text' : (result.name || 'Received file')}</h3><p>{formatBytes(result.bytes.length)} · received entirely offline</p>{result.kind === 'text' ? <><textarea className="text-input result-text" readOnly value={textResult} rows={8} /><button className="primary-button full" onClick={copyText}><Icon name="copy" size={18} /> {copied ? 'Copied!' : 'Copy text'}</button></> : <button className="primary-button full" onClick={saveResult}><Icon name="download" size={18} /> Save file</button>}</div>}
+      {result && <div className="result-card"><div className="success-orbit"><Icon name="shield" size={32} /></div><div className="success-badge">✓ SHA-256 verified</div><h3>{result.kind === 'text' ? 'Received text' : (result.name || 'Received file')}</h3><p>{formatBytes(result.bytes.length)} · received entirely offline</p>{result.kind === 'text' ? <><textarea ref={resultTextRef} className="text-input result-text" readOnly value={textResult} rows={8} /><button className="primary-button full" onClick={copyText}><Icon name="copy" size={18} /> {copied ? 'Copied!' : 'Copy text'}</button></> : <button className="primary-button full" onClick={saveResult}><Icon name="download" size={18} /> Save file</button>}</div>}
       <div className="privacy-note"><span>✓</span><p><strong>Camera only.</strong> Frames are assembled in this browser and are never sent over a network.</p></div>
     </section>
   )

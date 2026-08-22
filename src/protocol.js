@@ -2,6 +2,8 @@ import pako from 'pako'
 
 const VERSION = 1
 const DEFAULT_CHUNK_SIZE = 650
+const MAX_TRANSFER_BYTES = 2 * 1024 * 1024
+const MAX_FRAMES = 10000
 
 function bytesToBase64(bytes) {
   let binary = ''
@@ -78,12 +80,26 @@ export function parseFrame(text) {
     data?.q !== 'QRT' ||
     data?.v !== VERSION ||
     typeof data.id !== 'string' ||
+    !/^[a-f0-9]{12}$/.test(data.id) ||
     !Number.isInteger(data.i) ||
     !Number.isInteger(data.n) ||
     data.i < 0 ||
     data.n < 1 ||
+    data.n > MAX_FRAMES ||
     data.i >= data.n ||
-    typeof data.c !== 'string'
+    !['text', 'file'].includes(data.k) ||
+    typeof data.nm !== 'string' ||
+    data.nm.length > 255 ||
+    typeof data.mt !== 'string' ||
+    data.mt.length > 255 ||
+    !Number.isInteger(data.sz) ||
+    data.sz < 0 ||
+    data.sz > MAX_TRANSFER_BYTES ||
+    typeof data.h !== 'string' ||
+    !/^[a-f0-9]{64}$/.test(data.h) ||
+    typeof data.c !== 'string' ||
+    data.c.length > 700 ||
+    !/^[A-Za-z0-9+/]*={0,2}$/.test(data.c)
   ) {
     return null
   }
@@ -99,13 +115,22 @@ export async function rebuildTransfer(framesMap) {
   if (frames.length !== first.n) throw new Error('Transfer is incomplete.')
 
   for (const frame of frames) {
-    if (frame.id !== first.id || frame.n !== first.n || frame.h !== first.h) {
+    if (
+      frame.id !== first.id || frame.n !== first.n || frame.h !== first.h ||
+      frame.k !== first.k || frame.nm !== first.nm || frame.mt !== first.mt || frame.sz !== first.sz
+    ) {
       throw new Error('Frames do not belong to the same transfer.')
     }
   }
 
-  const compressed = base64ToBytes(frames.map((f) => f.c).join(''))
-  const bytes = pako.inflate(compressed)
+  let bytes
+  try {
+    const compressed = base64ToBytes(frames.map((f) => f.c).join(''))
+    bytes = pako.inflate(compressed)
+  } catch {
+    throw new Error('Transfer data is damaged. Please scan again.')
+  }
+  if (bytes.length !== first.sz || bytes.length > MAX_TRANSFER_BYTES) throw new Error('Received data size does not match the transfer.')
   const checksum = await sha256Hex(bytes)
 
   if (checksum !== first.h) throw new Error('Checksum failed. Please scan again.')
