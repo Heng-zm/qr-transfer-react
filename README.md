@@ -14,12 +14,12 @@ A React/Vite app that transfers text and files by showing animated QR codes on t
 - Automatic camera calibration with a recommended sender speed
 - Native accelerated QR detection where the browser supports it
 - Multi-image QR screenshot importing as an alternative to live camera scanning
-- Same-Wi-Fi WebRTC file transfer paired with two QR codes
+- Same-Wi-Fi WebRTC file transfer with one receiver scan
 - Copy feedback, offline file download, and clear integrity status
 
 ## What it does
 
-- No backend
+- No file-transfer backend
 - No account
 - No Bluetooth transfer
 - Direct same-Wi-Fi file transfer without a relay server
@@ -77,11 +77,11 @@ For truly offline receiver use, install the app as a PWA while it is available o
 
 1. Open **Wi-Fi** on both devices connected to the same local network.
 2. The sender chooses a file and creates a pairing code.
-3. The receiver scans the sender code and shows an answer code.
-4. The sender scans the answer; the file then streams directly over WebRTC.
-5. The receiver saves the file after SHA-256 verification.
+3. The receiver scans the sender code once.
+4. Automatic signaling connects the devices; the sender does not scan anything.
+5. The file streams directly over WebRTC and the receiver saves it after SHA-256 verification.
 
-The Wi-Fi mode uses no STUN or TURN relay. Router client isolation or restrictive browser networking policies can prevent a direct connection.
+Wi-Fi pairing uses the public PeerServer Cloud for temporary signaling metadata, so both devices need internet access while connecting. File bytes remain peer-to-peer and no STUN or TURN relay is configured. Router client isolation or restrictive browser networking policies can prevent a direct connection.
 
 ## Practical limits
 
