@@ -4,9 +4,9 @@ import { Peer } from 'peerjs'
 import QRCodeView from './QRCodeView.jsx'
 import { formatBytes } from './protocol.js'
 
-const CHUNK_SIZE = 16 * 1024
-const HIGH_WATER_MARK = 1024 * 1024
-const LOW_WATER_MARK = 256 * 1024
+const CHUNK_SIZE = 32 * 1024
+const HIGH_WATER_MARK = 4 * 1024 * 1024
+const LOW_WATER_MARK = 1024 * 1024
 const PAIR_PREFIX = 'BWP1:'
 
 async function checksum(bytes) {
@@ -215,14 +215,14 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
     const payload = payloadRef.current
     if (!payload) return
     setStage('sending'); setStatus('Sending over Wi-Fi…'); startTransferStats(payload.bytes.length)
-    sendWhenOpen(connection, { t: 'meta', name: payload.name, mime: payload.mime, size: payload.bytes.length, hash: payload.hash })
+    sendWhenOpen(connection, JSON.stringify({ t: 'meta', name: payload.name, mime: payload.mime, size: payload.bytes.length, hash: payload.hash }))
     for (let offset = 0; offset < payload.bytes.length; offset += CHUNK_SIZE) {
       await waitForSendBuffer(connection)
-      sendWhenOpen(connection, payload.bytes.slice(offset, offset + CHUNK_SIZE))
+      sendWhenOpen(connection, payload.bytes.subarray(offset, offset + CHUNK_SIZE))
       updateTransferStats(Math.min(payload.bytes.length, offset + CHUNK_SIZE), payload.bytes.length)
     }
     await waitForSendBuffer(connection)
-    sendWhenOpen(connection, { t: 'done' })
+    sendWhenOpen(connection, JSON.stringify({ t: 'done' }))
     updateTransferStats(payload.bytes.length, payload.bytes.length, true)
     setStage('complete'); setStatus('Sent successfully')
   }
@@ -264,12 +264,17 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
   }
 
   async function receiveData(data) {
-    if (data && typeof data === 'object' && !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer) && !(data instanceof Blob)) {
-      if (data.t === 'meta') {
-        if (!Number.isSafeInteger(data.size) || data.size < 0) throw new Error('The incoming file size is invalid.')
-        receiveRef.current = { ...data, chunks: [], received: 0 }
-        setStage('receiving'); setStatus(`Receiving ${data.name}`); startTransferStats(data.size)
-      } else if (data.t === 'done' && receiveRef.current) {
+    let message = data
+    if (typeof data === 'string') {
+      try { message = JSON.parse(data) }
+      catch { throw new Error('Received invalid transfer metadata.') }
+    }
+    if (message && typeof message === 'object' && !ArrayBuffer.isView(message) && !(message instanceof ArrayBuffer) && !(message instanceof Blob)) {
+      if (message.t === 'meta') {
+        if (!Number.isSafeInteger(message.size) || message.size < 0) throw new Error('The incoming file size is invalid.')
+        receiveRef.current = { ...message, chunks: [], received: 0 }
+        setStage('receiving'); setStatus(`Receiving ${message.name}`); startTransferStats(message.size)
+      } else if (message.t === 'done' && receiveRef.current) {
         const incoming = receiveRef.current
         const bytes = new Uint8Array(incoming.received)
         let offset = 0
@@ -296,7 +301,7 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
       peerRef.current = peer
       peer.on('error', handleConnectionFailure)
       peer.on('open', () => {
-        const connection = peer.connect(peerId, { reliable: true, metadata: { secret }, serialization: 'binary' })
+        const connection = peer.connect(peerId, { reliable: true, metadata: { secret }, serialization: 'raw' })
         connectionRef.current = connection
         connection.on('open', () => { setStage('receiving'); setStatus('Connected · waiting for file') })
         connection.on('data', (data) => receiveData(data).catch((cause) => { handleConnectionFailure(cause); closeConnection() }))

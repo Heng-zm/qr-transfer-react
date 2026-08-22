@@ -22,6 +22,7 @@ A React/Vite app that transfers text and files by showing animated QR codes on t
 - Sender QR saving/copying and receiver drag-and-drop pairing
 - Temporary share links that open Wi-Fi Receive and connect automatically
 - Live Wi-Fi transfer speed, byte progress, and time remaining
+- Raw WebRTC data path with larger chunks and tuned backpressure
 - Copy feedback, offline file download, and clear integrity status
 
 ## What it does
