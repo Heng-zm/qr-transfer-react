@@ -13,6 +13,7 @@ function Icon({ name, size = 20 }) {
     play: <path d="m8 5 11 7-11 7Z"/>, pause: <><path d="M9 5v14M15 5v14"/></>,
     maximize: <><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/></>,
     chevronLeft: <path d="m15 18-6-6 6-6"/>, chevronRight: <path d="m9 18 6-6-6-6"/>, close: <><path d="m18 6-12 12M6 6l12 12"/></>,
+    awake: <><path d="M12 2v2M4.93 4.93l1.42 1.42M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 4.93l-1.42 1.42"/><circle cx="12" cy="12" r="4"/><path d="M8 22h8"/></>,
   }
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
@@ -29,12 +30,44 @@ export default function Sender() {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const qrStageRef = useRef(null)
+  const wakeLockRef = useRef(null)
+  const [wakeActive, setWakeActive] = useState(false)
 
   useEffect(() => {
     if (!transfer || !playing || transfer.frames.length <= 1) return
     const timer = setInterval(() => setFrameIndex((current) => (current + 1) % transfer.frames.length), speed)
     return () => clearInterval(timer)
   }, [transfer, playing, speed])
+
+  useEffect(() => {
+    let cancelled = false
+
+    async function requestWakeLock() {
+      if (!transfer || !playing || !navigator.wakeLock || document.visibilityState !== 'visible') return
+      try {
+        const lock = await navigator.wakeLock.request('screen')
+        if (cancelled) { await lock.release(); return }
+        wakeLockRef.current = lock
+        setWakeActive(true)
+        lock.addEventListener('release', () => { if (wakeLockRef.current === lock) { wakeLockRef.current = null; setWakeActive(false) } })
+      } catch { setWakeActive(false) }
+    }
+
+    function handleVisibility() {
+      if (document.visibilityState === 'visible' && !wakeLockRef.current) requestWakeLock()
+    }
+
+    requestWakeLock()
+    document.addEventListener('visibilitychange', handleVisibility)
+    return () => {
+      cancelled = true
+      document.removeEventListener('visibilitychange', handleVisibility)
+      const lock = wakeLockRef.current
+      wakeLockRef.current = null
+      setWakeActive(false)
+      lock?.release().catch(() => {})
+    }
+  }, [transfer, playing])
 
   const inputBytes = mode === 'text' ? encoder.encode(text).length : (file?.size || 0)
   const hasContent = mode === 'text' ? inputBytes > 0 : Boolean(file)
@@ -82,7 +115,7 @@ export default function Sender() {
         <div className="qr-stage" ref={qrStageRef}><div className="qr-glow" /><QRCodeView value={transfer.frames[frameIndex]} size={360} /><div className="frame-counter"><span className={playing ? 'live-dot' : ''} /> Frame {frameIndex + 1} of {transfer.frames.length}</div></div>
         <div className="timeline"><div className="progress-track" aria-label={`Frame ${frameIndex + 1} of ${transfer.frames.length}`}><div className="progress-fill" style={{ width: `${percent}%` }} /></div><div className="frame-controls"><button className="icon-button" onClick={() => stepFrame(-1)} aria-label="Previous frame"><Icon name="chevronLeft" /></button><button className="primary-button play-button" onClick={() => setPlaying((value) => !value)}><Icon name={playing ? 'pause' : 'play'} size={18} /> {playing ? 'Pause' : 'Play'}</button><button className="icon-button" onClick={() => stepFrame(1)} aria-label="Next frame"><Icon name="chevronRight" /></button></div></div>
         <div className="transfer-summary"><div><span>Transfer</span><strong title={transfer.name}>{transfer.name}</strong></div><div><span>Size</span><strong>{formatBytes(transfer.originalBytes)}</strong></div><div><span>Compressed</span><strong>{savings ? `${savings}% smaller` : formatBytes(transfer.compressedBytes)}</strong></div><div><span>Frames</span><strong>{transfer.frames.length}</strong></div></div>
-        <div className="control-row split-controls"><label className="select-control"><span>Scan speed</span><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={220}>Fast · 4.5 fps</option><option value={360}>Balanced · 2.8 fps</option><option value={520}>Easy · 1.9 fps</option><option value={750}>Slow · 1.3 fps</option></select></label><button className="secondary-button" onClick={enterFullscreen}><Icon name="maximize" size={18} /> Fullscreen</button></div>
+        <div className="control-row split-controls"><label className="select-control"><span>Scan speed</span><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={220}>Fast · 4.5 fps</option><option value={360}>Balanced · 2.8 fps</option><option value={520}>Easy · 1.9 fps</option><option value={750}>Slow · 1.3 fps</option></select></label><div className="sender-actions">{wakeActive && <span className="awake-badge"><Icon name="awake" size={15} /> Screen awake</span>}<button className="secondary-button" onClick={enterFullscreen}><Icon name="maximize" size={18} /> Fullscreen</button></div></div>
         {error && <div className="error-box" role="alert">{error}</div>}
       </section>
     )

@@ -13,6 +13,7 @@ function Icon({ name, size = 20 }) {
     download: <><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></>,
     reset: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></>,
     shield: <><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3Z"/><path d="m9 12 2 2 4-4"/></>,
+    flash: <path d="m13 2-9 12h8l-1 8 9-12h-8Z"/>,
   }
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
@@ -27,6 +28,7 @@ export default function Receiver({ active = true }) {
   const resultTextRef = useRef(null)
   const copyTimerRef = useRef(null)
   const trackingTimerRef = useRef(null)
+  const firstFrameAtRef = useRef(0)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready when you are')
   const [progress, setProgress] = useState({ received: 0, total: 0 })
@@ -35,6 +37,9 @@ export default function Receiver({ active = true }) {
   const [cameraFacing, setCameraFacing] = useState('environment')
   const [copied, setCopied] = useState(false)
   const [tracking, setTracking] = useState(null)
+  const [torchAvailable, setTorchAvailable] = useState(false)
+  const [torchOn, setTorchOn] = useState(false)
+  const [scanRate, setScanRate] = useState(0)
 
   useEffect(() => () => {
     scanSessionRef.current += 1
@@ -47,8 +52,8 @@ export default function Receiver({ active = true }) {
     if (!active) stopScanner()
   }, [active])
 
-  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; clearTimeout(trackingTimerRef.current); setTracking(null); setScanning(false) }
-  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null) }
+  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; clearTimeout(trackingTimerRef.current); setTracking(null); setTorchAvailable(false); setTorchOn(false); setScanning(false) }
+  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0) }
 
   function trackResult(scanResult, valid) {
     const video = videoRef.current
@@ -94,6 +99,10 @@ export default function Receiver({ active = true }) {
         if (!framesRef.current.has(frame.i)) {
           framesRef.current.set(frame.i, frame)
           const received = framesRef.current.size
+          const now = performance.now()
+          if (!firstFrameAtRef.current) firstFrameAtRef.current = now
+          if (received > 1) setScanRate((received - 1) / Math.max(.25, (now - firstFrameAtRef.current) / 1000))
+          navigator.vibrate?.(received === frame.n ? [35, 45, 70] : 16)
           setProgress({ received, total: frame.n }); setStatus('Receiving frames…')
           if (received === frame.n) {
             rebuildingRef.current = true; setStatus('Verifying transfer…')
@@ -103,7 +112,12 @@ export default function Receiver({ active = true }) {
         }
       })
       if (session !== scanSessionRef.current) { controls.stop(); return }
-      controlsRef.current = controls; setScanning(true); setStatus(framesRef.current.size ? 'Receiving frames…' : 'Looking for BeamQR codes…')
+      controlsRef.current = controls
+      const videoTrack = videoRef.current?.srcObject?.getVideoTracks?.()[0]
+      let supportsTorch = false
+      try { supportsTorch = Boolean(videoTrack?.getCapabilities?.().torch) } catch {}
+      setTorchAvailable(supportsTorch)
+      setScanning(true); setStatus(framesRef.current.size ? 'Receiving frames…' : 'Looking for BeamQR codes…')
     } catch (e) {
       if (session !== scanSessionRef.current) return
       const cameraErrors = {
@@ -118,6 +132,13 @@ export default function Receiver({ active = true }) {
   }
 
   async function flipCamera() { const next = cameraFacing === 'environment' ? 'user' : 'environment'; setCameraFacing(next); await startScanner(next, true) }
+  async function toggleTorch() {
+    const track = videoRef.current?.srcObject?.getVideoTracks?.()[0]
+    if (!track) return
+    const next = !torchOn
+    try { await track.applyConstraints({ advanced: [{ torch: next }] }); setTorchOn(next) }
+    catch { setTorchAvailable(false); setError('Torch control is not available for this camera.') }
+  }
   function saveResult() { if (!result) return; const blob = new Blob([result.bytes], { type: result.mime || 'application/octet-stream' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = result.name || 'received-file'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000) }
   async function copyText() {
     if (!result) return
@@ -130,6 +151,14 @@ export default function Receiver({ active = true }) {
 
   const percentage = progress.total ? Math.round((progress.received / progress.total) * 100) : 0
   const textResult = result?.kind === 'text' ? decoder.decode(result.bytes) : ''
+  const remainingSeconds = scanRate > 0 ? Math.ceil((progress.total - progress.received) / scanRate) : 0
+  const mapSize = Math.min(progress.total, 64)
+  const frameMap = Array.from({ length: mapSize }, (_, index) => {
+    const start = Math.floor(index * progress.total / mapSize)
+    const end = Math.max(start + 1, Math.floor((index + 1) * progress.total / mapSize))
+    for (let frame = start; frame < end; frame += 1) if (!framesRef.current.has(frame)) return false
+    return true
+  })
 
   return (
     <section className="panel receiver-panel">
@@ -151,9 +180,9 @@ export default function Receiver({ active = true }) {
         </div>
       )}
 
-      {!result && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}</div>}
+      {!result && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}</div>}
 
-      {!result && <div className="status-card"><div className="status-line"><div><span className={`status-indicator ${scanning ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><small>{progress.received} of {progress.total} unique frames captured</small></>}</div>}
+      {!result && <div className="status-card" aria-live="polite"><div className="status-line"><div><span className={`status-indicator ${scanning ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><div className="frame-map" aria-label={`${progress.received} of ${progress.total} frames captured`}>{frameMap.map((captured, index) => <span className={captured ? 'captured' : ''} key={index} />)}</div><div className="receive-metrics"><small>{progress.received} captured · {progress.total - progress.received} missing</small>{scanRate > 0 && <small>{scanRate.toFixed(1)} frames/s · ~{remainingSeconds}s left</small>}</div></>}</div>}
       {error && <div className="error-box" role="alert">{error}</div>}
 
       {result && <div className="result-card"><div className="success-orbit"><Icon name="shield" size={32} /></div><div className="success-badge">✓ SHA-256 verified</div><h3>{result.kind === 'text' ? 'Received text' : (result.name || 'Received file')}</h3><p>{formatBytes(result.bytes.length)} · received entirely offline</p>{result.kind === 'text' ? <><textarea ref={resultTextRef} className="text-input result-text" readOnly value={textResult} rows={8} /><button className="primary-button full" onClick={copyText}><Icon name="copy" size={18} /> {copied ? 'Copied!' : 'Copy text'}</button></> : <button className="primary-button full" onClick={saveResult}><Icon name="download" size={18} /> Save file</button>}</div>}
