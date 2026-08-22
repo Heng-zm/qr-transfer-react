@@ -136,7 +136,7 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .fullscreen-actions { display: flex; gap: 7px; }
 .fullscreen-actions button { width: 38px; height: 38px; display: grid; place-items: center; flex: 0 0 auto; padding: 0; border: 1px solid rgba(255,255,255,.17); border-radius: 10px; background: rgba(255,255,255,.08); color: #fff; }
 .fullscreen-actions button.is-active { border-color: rgba(168,243,74,.55); background: rgba(168,243,74,.14); color: #c6ff7d; }
-.fullscreen-actions button.stop { border-color: rgba(255,106,106,.4); background: rgba(255,82,82,.16); color: #ffaaaa; }
+.fullscreen-actions button.pause { border-color: rgba(255,205,106,.4); background: rgba(255,190,82,.14); color: #ffe0a3; }
 @keyframes tracker-in { from { opacity: 0; transform: scale(.96); transform-origin: center; } }
 .camera-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #879083; background: radial-gradient(circle at center, #182018, #080b09); }
 .camera-placeholder strong { color: #e8eee5; } .camera-icon { width: 62px; height: 62px; display: grid; place-items: center; margin-bottom: 5px; border: 1px solid #2f3d2a; border-radius: 50%; color: var(--accent); background: #111710; }

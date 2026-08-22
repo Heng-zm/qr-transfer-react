@@ -8,6 +8,7 @@ function Icon({ name, size = 20 }) {
   const paths = {
     camera: <><path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3Z"/><circle cx="12" cy="13" r="3"/></>,
     stop: <rect x="6" y="6" width="12" height="12" rx="1"/>,
+    pause: <><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></>,
     flip: <><path d="m17 1 4 4-4 4"/><path d="M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4"/><path d="M21 13v2a4 4 0 0 1-4 4H3"/></>,
     copy: <><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></>,
     download: <><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 21h14"/></>,
@@ -35,6 +36,7 @@ export default function Receiver({ active = true }) {
   const trackingTimerRef = useRef(null)
   const trackingHistoryRef = useRef(null)
   const firstFrameAtRef = useRef(0)
+  const scanRateStartCountRef = useRef(0)
   const videoTrackRef = useRef(null)
   const zoomCapabilityRef = useRef(null)
   const lastZoomAtRef = useRef(0)
@@ -76,7 +78,7 @@ export default function Receiver({ active = true }) {
   }, [])
 
   useEffect(() => {
-    if (!active) stopScanner()
+    if (!active) pauseScanner()
   }, [active])
 
   useEffect(() => {
@@ -86,7 +88,16 @@ export default function Receiver({ active = true }) {
   }, [])
 
   function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelAnimationFrame(nativeScanFrameRef.current); nativeScanFrameRef.current = 0; nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; smartScanCycleRef.current = 0; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setNativeFastScan(false); setScanning(false) }
-  function resetTransfer() { importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }); setFullScreen(false) }
+  function resetTransfer() { importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; scanRateStartCountRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }); setFullScreen(false) }
+
+  function pauseScanner() {
+    const hasFrames = framesRef.current.size > 0
+    stopScanner()
+    firstFrameAtRef.current = 0
+    scanRateStartCountRef.current = 0
+    setScanRate(0)
+    setStatus(hasFrames ? 'Paused · progress saved' : 'Ready to scan')
+  }
 
   function updateCalibration(confidence) {
     const samples = [...qualitySamplesRef.current, confidence].slice(-12)
@@ -179,8 +190,9 @@ export default function Receiver({ active = true }) {
     framesRef.current.set(key, frame)
     const transferStatus = analyzeTransferFrames(framesRef.current)
     const now = performance.now()
-    if (!firstFrameAtRef.current) firstFrameAtRef.current = now
-    if (transferStatus.direct > 1) setScanRate((transferStatus.direct - 1) / Math.max(.25, (now - firstFrameAtRef.current) / 1000))
+    if (!firstFrameAtRef.current) { firstFrameAtRef.current = now; scanRateStartCountRef.current = transferStatus.direct }
+    const framesSinceRateStart = transferStatus.direct - scanRateStartCountRef.current
+    if (framesSinceRateStart > 0) setScanRate(framesSinceRateStart / Math.max(.25, (now - firstFrameAtRef.current) / 1000))
     if (showTracking) navigator.vibrate?.(transferStatus.complete ? [35, 45, 70] : 16)
     setProgress(transferStatus)
     setStatus(transferStatus.recovery > 0 ? `Receiving · ${transferStatus.recovery} recovered` : 'Receiving…')
@@ -346,7 +358,7 @@ export default function Receiver({ active = true }) {
       if (document.fullscreenElement === cameraShellRef.current) await document.exitFullscreen()
     } catch {}
     setFullScreen(false)
-    stopScanner()
+    pauseScanner()
   }
   async function toggleTorch() {
     const track = videoRef.current?.srcObject?.getVideoTracks?.()[0]
@@ -413,6 +425,7 @@ export default function Receiver({ active = true }) {
   }
 
   const percentage = progress.total ? Math.round((progress.received / progress.total) * 100) : 0
+  const hasPartialTransfer = progress.total > 0
   const textResult = result?.kind === 'text' ? decoder.decode(result.bytes) : ''
   const remainingSeconds = scanRate > 0 ? Math.ceil((progress.total - progress.received) / scanRate) : 0
   const mapSize = Math.min(progress.total, 64)
@@ -431,7 +444,7 @@ export default function Receiver({ active = true }) {
 
   return (
     <section className="panel receiver-panel">
-      <div className="panel-heading"><div><div className="step-label">RECEIVE</div><h2>{result ? 'Transfer ready' : 'Scan QR codes'}</h2></div>{(progress.received > 0 || result) && <button className="ghost-button compact" onClick={() => { stopScanner(); resetTransfer() }}><Icon name="reset" size={17} /> Reset</button>}</div>
+      <div className="panel-heading"><div><div className="step-label">RECEIVE</div><h2>{result ? 'Transfer ready' : 'Scan QR codes'}</h2></div>{(hasPartialTransfer || result) && <button className="ghost-button compact" onClick={() => { stopScanner(); resetTransfer() }}><Icon name="reset" size={17} /> Reset</button>}</div>
 
       {!result && <div className="receive-methods" role="tablist" aria-label="Receive method"><button className={receiveMode === 'camera' ? 'active' : ''} onClick={() => selectReceiveMode('camera')} role="tab" aria-selected={receiveMode === 'camera'} disabled={importing}><span><Icon name="camera" size={20} /></span><strong>Camera</strong></button><button className={receiveMode === 'images' ? 'active' : ''} onClick={() => selectReceiveMode('images')} role="tab" aria-selected={receiveMode === 'images'} disabled={importing}><span><Icon name="image" size={20} /></span><strong>Screenshots</strong></button></div>}
 
@@ -449,14 +462,14 @@ export default function Receiver({ active = true }) {
           {tracking && <><div className={`tracking-badge ${tracking.valid ? '' : 'foreign'}`}><span /> {tracking.label.toLowerCase()} <strong>{tracking.confidence}%</strong></div><div className={`confidence-meter ${tracking.valid ? '' : 'foreign'}`}><i style={{ width: `${tracking.confidence}%` }} /></div></>}
           {autoZoom > 0 && <div className="auto-zoom-badge">AUTO ZOOM <strong>{autoZoom.toFixed(1)}×</strong></div>}
           {scanning && <><div className="vision-assist-badge"><span>✦</span> SMART VISION</div><button type="button" className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullScreen ? 'Exit fullscreen camera' : 'Open fullscreen camera'}><Icon name={fullScreen ? 'collapse' : 'expand'} size={19} /></button></>}
-          {scanning && <div className="fullscreen-hud"><div className="fullscreen-status"><span className={`status-indicator ${scanning ? 'active' : ''}`} /><div><strong>{status}</strong><small>{progress.total > 0 ? `${percentage}% · ${progress.received}/${progress.total} frames` : tracking?.valid ? 'Fast scan active' : 'Searching full frame and center'}</small></div></div><div className="fullscreen-actions"><button type="button" onClick={flipCamera} aria-label="Flip camera"><Icon name="flip" size={18} /></button>{torchAvailable && <button type="button" className={torchOn ? 'is-active' : ''} onClick={toggleTorch} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'}><Icon name="flash" size={18} /></button>}<button type="button" onClick={toggleFullscreen} aria-label="Exit fullscreen camera"><Icon name="collapse" size={18} /></button><button type="button" className="stop" onClick={stopFullscreenScanner} aria-label="Stop camera"><Icon name="stop" size={17} /></button></div></div>}
+          {scanning && <div className="fullscreen-hud"><div className="fullscreen-status"><span className={`status-indicator ${scanning ? 'active' : ''}`} /><div><strong>{status}</strong><small>{progress.total > 0 ? `${percentage}% · ${progress.received}/${progress.total} frames` : tracking?.valid ? 'Fast scan active' : 'Searching full frame and center'}</small></div></div><div className="fullscreen-actions"><button type="button" onClick={flipCamera} aria-label="Flip camera"><Icon name="flip" size={18} /></button>{torchAvailable && <button type="button" className={torchOn ? 'is-active' : ''} onClick={toggleTorch} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'}><Icon name="flash" size={18} /></button>}<button type="button" onClick={toggleFullscreen} aria-label="Exit fullscreen camera"><Icon name="collapse" size={18} /></button><button type="button" className="pause" onClick={stopFullscreenScanner} aria-label="Pause scanning"><Icon name="pause" size={17} /></button></div></div>}
           {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera ready</strong></div>}
         </div>
       )}
 
       {!result && receiveMode === 'images' && <label className={`screenshot-zone ${importDragging ? 'dragging' : ''} ${importing ? 'is-loading' : ''}`} onDragEnter={(event) => { event.preventDefault(); setImportDragging(true) }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setImportDragging(false)} onDrop={(event) => { event.preventDefault(); setImportDragging(false); importFiles(event.dataTransfer.files) }}><input type="file" accept="image/*" multiple disabled={importing} onChange={importScreenshots} /><span className="screenshot-icon"><Icon name="image" size={27} /></span><strong>{importing ? `${importProgress.current} / ${importProgress.total}` : 'Drop screenshots'}</strong>{!importing && <em>Choose images</em>}</label>}
 
-      {!result && receiveMode === 'camera' && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}</div>}
+      {!result && receiveMode === 'camera' && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? pauseScanner() : startScanner(cameraFacing, hasPartialTransfer)}><Icon name={scanning ? 'pause' : 'camera'} size={18} /> {scanning ? 'Pause' : hasPartialTransfer ? 'Resume' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}</div>}
 
       {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA</span><strong>{cameraQuality.label}</strong>{nativeFastScan && <em className="native-fast">✦ Multi-scale detection</em>}</div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div><small>{cameraQuality.score}% signal</small><small>Sender speed: <strong>{cameraQuality.recommendation}</strong></small></div></div>}
       {!result && importSummary && <div className="import-summary"><Icon name="image" size={16} /> {importSummary}</div>}
