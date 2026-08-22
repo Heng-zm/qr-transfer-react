@@ -85,4 +85,4 @@ Wi-Fi pairing uses the public PeerServer Cloud for temporary signaling metadata,
 
 ## Practical limits
 
-QR transfer is optical, so large files take many frames. QR mode limits files to 2 MB, and files under about 200 KB are more practical. Same-Wi-Fi mode supports files up to 50 MB. Use the `Easy` QR speed on lower-quality cameras.
+QR transfer is optical, so large files take many frames. QR mode limits files to 2 MB, and files under about 200 KB are more practical. Same-Wi-Fi mode has no fixed application size cap; the practical maximum depends on available browser memory and device capability. Use the `Easy` QR speed on lower-quality cameras.

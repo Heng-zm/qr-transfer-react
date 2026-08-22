@@ -4,7 +4,6 @@ import { Peer } from 'peerjs'
 import QRCodeView from './QRCodeView.jsx'
 import { formatBytes } from './protocol.js'
 
-const WIFI_FILE_LIMIT = 50 * 1024 * 1024
 const CHUNK_SIZE = 16 * 1024
 const HIGH_WATER_MARK = 1024 * 1024
 const LOW_WATER_MARK = 256 * 1024
@@ -178,7 +177,6 @@ export default function WifiTransfer({ active = true }) {
 
   async function createTransfer() {
     if (!file) return
-    if (file.size > WIFI_FILE_LIMIT) { setError('Choose a file up to 50 MB.'); return }
     setBusy(true); setError(''); setStatus('Preparing…')
     try {
       const bytes = new Uint8Array(await file.arrayBuffer())
@@ -204,7 +202,7 @@ export default function WifiTransfer({ active = true }) {
   async function receiveData(data) {
     if (data && typeof data === 'object' && !ArrayBuffer.isView(data) && !(data instanceof ArrayBuffer) && !(data instanceof Blob)) {
       if (data.t === 'meta') {
-        if (!Number.isSafeInteger(data.size) || data.size < 0 || data.size > WIFI_FILE_LIMIT) throw new Error('The incoming file is too large.')
+        if (!Number.isSafeInteger(data.size) || data.size < 0) throw new Error('The incoming file size is invalid.')
         receiveRef.current = { ...data, chunks: [], received: 0 }
         setStage('receiving'); setStatus(`Receiving ${data.name}`); setProgress(0)
       } else if (data.t === 'done' && receiveRef.current) {
@@ -257,7 +255,7 @@ export default function WifiTransfer({ active = true }) {
       <div className="panel-heading"><div><div className="step-label">LOCAL WI-FI</div><h2>Direct device transfer</h2></div>{stage !== 'idle' && <button className="ghost-button compact" onClick={() => reset()}>Reset</button>}</div>
       <div className="segmented"><button className={role === 'send' ? 'active' : ''} onClick={() => reset('send')}>Send</button><button className={role === 'receive' ? 'active' : ''} onClick={() => reset('receive')}>Receive</button></div>
 
-      {stage === 'idle' && role === 'send' && <><label className="drop-zone wifi-file"><input type="file" onChange={(event) => { setFile(event.target.files?.[0] || null); setError('') }} /><strong>{file ? file.name : 'Choose a file'}</strong><small>{file ? formatBytes(file.size) : 'Up to 50 MB · same Wi-Fi'}</small></label><button className="primary-button full" disabled={!file || busy} onClick={createTransfer}>{busy ? 'Preparing…' : 'Create Wi-Fi transfer'}</button></>}
+      {stage === 'idle' && role === 'send' && <><label className="drop-zone wifi-file"><input type="file" onChange={(event) => { setFile(event.target.files?.[0] || null); setError('') }} /><strong>{file ? file.name : 'Choose a file'}</strong><small>{file ? formatBytes(file.size) : 'No fixed size cap · same Wi-Fi'}</small></label><button className="primary-button full" disabled={!file || busy} onClick={createTransfer}>{busy ? 'Preparing…' : 'Create Wi-Fi transfer'}</button></>}
       {stage === 'idle' && role === 'receive' && <button className="primary-button full" onClick={() => { setStage('scan-sender'); setStatus('Scan the sender code') }}>Scan sender code</button>}
 
       {stage === 'waiting' && <div className="wifi-pair-code"><QRCodeView value={pairCode} size={340} /><strong>{status}</strong><small>Keep this screen open. No return scan is needed.</small></div>}
