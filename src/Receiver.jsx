@@ -30,6 +30,9 @@ export default function Receiver({ active = true }) {
   const trackingTimerRef = useRef(null)
   const trackingHistoryRef = useRef(null)
   const firstFrameAtRef = useRef(0)
+  const videoTrackRef = useRef(null)
+  const zoomCapabilityRef = useRef(null)
+  const lastZoomAtRef = useRef(0)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready when you are')
   const [progress, setProgress] = useState({ received: 0, total: 0 })
@@ -41,6 +44,7 @@ export default function Receiver({ active = true }) {
   const [torchAvailable, setTorchAvailable] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
   const [scanRate, setScanRate] = useState(0)
+  const [autoZoom, setAutoZoom] = useState(0)
 
   useEffect(() => () => {
     scanSessionRef.current += 1
@@ -53,8 +57,33 @@ export default function Receiver({ active = true }) {
     if (!active) stopScanner()
   }, [active])
 
-  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; setTracking(null); setTorchAvailable(false); setTorchOn(false); setScanning(false) }
-  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0) }
+  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setScanning(false) }
+  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0) }
+
+  function zoomToQr(points, video) {
+    const track = videoTrackRef.current
+    const capability = zoomCapabilityRef.current
+    const now = performance.now()
+    if (!track || !capability || now - lastZoomAtRef.current < 850) return
+
+    const xs = points.map(({ x }) => x)
+    const ys = points.map(({ y }) => y)
+    const qrWidth = Math.max(...xs) - Math.min(...xs)
+    const qrHeight = Math.max(...ys) - Math.min(...ys)
+    const coverage = Math.max(qrWidth / video.videoWidth, qrHeight / video.videoHeight)
+    if (!Number.isFinite(coverage) || coverage <= 0 || coverage >= .44) return
+
+    const current = Number(track.getSettings?.().zoom) || capability.min || 1
+    const step = Math.max(Number(capability.step) || .1, .08)
+    const desired = Math.min(capability.max, current * Math.min(1.55, .44 / coverage))
+    const target = Math.min(capability.max, Math.round(desired / step) * step)
+    if (!Number.isFinite(target) || target < current + step) return
+
+    lastZoomAtRef.current = now
+    track.applyConstraints({ advanced: [{ zoom: target }] })
+      .then(() => { if (videoTrackRef.current === track) setAutoZoom(target) })
+      .catch(() => { if (videoTrackRef.current === track) { zoomCapabilityRef.current = null; setAutoZoom(0) } })
+  }
 
   function trackResult(scanResult, valid) {
     const video = videoRef.current
@@ -67,6 +96,7 @@ export default function Receiver({ active = true }) {
     const topRight = point(rawPoints[2])
     if (![bottomLeft, topLeft, topRight].every(({ x, y }) => Number.isFinite(x) && Number.isFinite(y))) return
     const bottomRight = { x: bottomLeft.x + topRight.x - topLeft.x, y: bottomLeft.y + topRight.y - topLeft.y }
+    if (valid) zoomToQr([topLeft, topRight, bottomRight, bottomLeft], video)
     const width = video.clientWidth
     const height = video.clientHeight
     const scale = Math.max(width / video.videoWidth, height / video.videoHeight)
@@ -131,10 +161,12 @@ export default function Receiver({ active = true }) {
       if (session !== scanSessionRef.current) { controls.stop(); return }
       controlsRef.current = controls
       const videoTrack = videoRef.current?.srcObject?.getVideoTracks?.()[0]
+      videoTrackRef.current = videoTrack || null
       let supportsTorch = false
       try {
         const capabilities = videoTrack?.getCapabilities?.() || {}
         supportsTorch = Boolean(capabilities.torch)
+        zoomCapabilityRef.current = Number.isFinite(capabilities.zoom?.max) && capabilities.zoom.max > capabilities.zoom.min ? capabilities.zoom : null
         const cameraTuning = {}
         if (capabilities.focusMode?.includes?.('continuous')) cameraTuning.focusMode = 'continuous'
         if (capabilities.exposureMode?.includes?.('continuous')) cameraTuning.exposureMode = 'continuous'
@@ -201,6 +233,7 @@ export default function Receiver({ active = true }) {
             </svg>
           )}
           {tracking && <><div className={`tracking-badge ${tracking.valid ? '' : 'foreign'}`}><span /> {tracking.label.toLowerCase()} <strong>{tracking.confidence}%</strong></div><div className={`confidence-meter ${tracking.valid ? '' : 'foreign'}`}><i style={{ width: `${tracking.confidence}%` }} /></div></>}
+          {autoZoom > 0 && <div className="auto-zoom-badge">AUTO ZOOM <strong>{autoZoom.toFixed(1)}×</strong></div>}
           {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera preview</strong><small>Your browser will ask for permission</small></div>}
         </div>
       )}
