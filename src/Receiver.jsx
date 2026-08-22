@@ -15,12 +15,16 @@ function Icon({ name, size = 20 }) {
     shield: <><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3Z"/><path d="m9 12 2 2 4-4"/></>,
     flash: <path d="m13 2-9 12h8l-1 8 9-12h-8Z"/>,
     image: <><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></>,
+    expand: <><path d="M8 3H3v5M16 3h5v5M8 21H3v-5M16 21h5v-5"/></>,
+    collapse: <><path d="M8 3v5H3M16 3v5h5M8 21v-5H3M16 21v-5h5"/></>,
   }
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
 export default function Receiver({ active = true }) {
   const videoRef = useRef(null)
+  const cameraShellRef = useRef(null)
+  const assistCanvasRef = useRef(null)
   const controlsRef = useRef(null)
   const framesRef = useRef(new Map())
   const activeIdRef = useRef(null)
@@ -40,6 +44,7 @@ export default function Receiver({ active = true }) {
   const nativeScanFrameRef = useRef(0)
   const nativeScanBusyRef = useRef(false)
   const nativeLastScanAtRef = useRef(0)
+  const smartScanCycleRef = useRef(0)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready when you are')
   const [progress, setProgress] = useState({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] })
@@ -59,6 +64,7 @@ export default function Receiver({ active = true }) {
   const [importDragging, setImportDragging] = useState(false)
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0 })
   const [nativeFastScan, setNativeFastScan] = useState(false)
+  const [fullScreen, setFullScreen] = useState(false)
 
   useEffect(() => () => {
     scanSessionRef.current += 1
@@ -73,8 +79,14 @@ export default function Receiver({ active = true }) {
     if (!active) stopScanner()
   }, [active])
 
-  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelAnimationFrame(nativeScanFrameRef.current); nativeScanFrameRef.current = 0; nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setNativeFastScan(false); setScanning(false) }
-  function resetTransfer() { importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }) }
+  useEffect(() => {
+    const syncFullscreen = () => setFullScreen(document.fullscreenElement === cameraShellRef.current)
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen)
+  }, [])
+
+  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelAnimationFrame(nativeScanFrameRef.current); nativeScanFrameRef.current = 0; nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; smartScanCycleRef.current = 0; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setNativeFastScan(false); setScanning(false) }
+  function resetTransfer() { importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }); setFullScreen(false) }
 
   function updateCalibration(confidence) {
     const samples = [...qualitySamplesRef.current, confidence].slice(-12)
@@ -197,6 +209,24 @@ export default function Receiver({ active = true }) {
     } catch { return null }
   }
 
+  function createSmartScanSource(video) {
+    if (!video.videoWidth || !video.videoHeight) return null
+    const cropSize = Math.round(Math.min(video.videoWidth, video.videoHeight) * .78)
+    const sourceX = Math.round((video.videoWidth - cropSize) / 2)
+    const sourceY = Math.round((video.videoHeight - cropSize) / 2)
+    const canvas = assistCanvasRef.current || document.createElement('canvas')
+    assistCanvasRef.current = canvas
+    if (canvas.width !== 640) canvas.width = 640
+    if (canvas.height !== 640) canvas.height = 640
+    const context = canvas.getContext('2d', { alpha: false, desynchronized: true })
+    if (!context) return null
+    context.drawImage(video, sourceX, sourceY, cropSize, cropSize, 0, 0, 640, 640)
+    return {
+      source: canvas,
+      mapPoint: ({ x, y }) => ({ x: sourceX + x * cropSize / 640, y: sourceY + y * cropSize / 640 }),
+    }
+  }
+
   function startNativeDetection(session, detector) {
     setNativeFastScan(true)
     const schedule = (scan) => {
@@ -209,15 +239,19 @@ export default function Receiver({ active = true }) {
       nativeScanBusyRef.current = true
       nativeLastScanAtRef.current = timestamp
       try {
-        const detected = await detector.detect(video)
+        smartScanCycleRef.current += 1
+        const useFocusedPass = smartScanCycleRef.current % 3 === 0 && !trackingHistoryRef.current
+        const smartSource = useFocusedPass ? createSmartScanSource(video) : null
+        const detected = await detector.detect(smartSource?.source || video)
         for (const barcode of detected) {
           if (!barcode.rawValue) continue
-          const corners = barcode.cornerPoints?.length >= 4 ? barcode.cornerPoints : [
+          const sourceCorners = barcode.cornerPoints?.length >= 4 ? barcode.cornerPoints : [
             { x: barcode.boundingBox.left, y: barcode.boundingBox.top },
             { x: barcode.boundingBox.right, y: barcode.boundingBox.top },
             { x: barcode.boundingBox.right, y: barcode.boundingBox.bottom },
             { x: barcode.boundingBox.left, y: barcode.boundingBox.bottom },
           ]
+          const corners = smartSource ? sourceCorners.map(smartSource.mapPoint) : sourceCorners
           const adaptedResult = { getText: () => barcode.rawValue, getResultPoints: () => [corners[3], corners[0], corners[1]] }
           await processDecodedResult(adaptedResult, true)
         }
@@ -297,6 +331,15 @@ export default function Receiver({ active = true }) {
   }
 
   async function flipCamera() { const next = cameraFacing === 'environment' ? 'user' : 'environment'; setCameraFacing(next); await startScanner(next, true) }
+  async function toggleFullscreen() {
+    const shell = cameraShellRef.current
+    if (!shell) return
+    try {
+      if (document.fullscreenElement === shell) await document.exitFullscreen()
+      else if (shell.requestFullscreen) await shell.requestFullscreen()
+      else setFullScreen((current) => !current)
+    } catch { setFullScreen((current) => !current) }
+  }
   async function toggleTorch() {
     const track = videoRef.current?.srcObject?.getVideoTracks?.()[0]
     if (!track) return
@@ -385,7 +428,7 @@ export default function Receiver({ active = true }) {
       {!result && <div className="receive-methods" role="tablist" aria-label="Receive method"><button className={receiveMode === 'camera' ? 'active' : ''} onClick={() => selectReceiveMode('camera')} role="tab" aria-selected={receiveMode === 'camera'} disabled={importing}><span><Icon name="camera" size={20} /></span><div><strong>Live camera</strong><small>Fastest for animated QR</small></div></button><button className={receiveMode === 'images' ? 'active' : ''} onClick={() => selectReceiveMode('images')} role="tab" aria-selected={receiveMode === 'images'} disabled={importing}><span><Icon name="image" size={20} /></span><div><strong>QR screenshots</strong><small>Import one or many images</small></div></button></div>}
 
       {!result && (
-        <div hidden={receiveMode !== 'camera'} className={`camera-shell ${scanning ? 'is-scanning' : ''} ${tracking?.valid ? 'has-lock' : ''}`}>
+        <div ref={cameraShellRef} hidden={receiveMode !== 'camera'} className={`camera-shell ${scanning ? 'is-scanning' : ''} ${tracking?.valid ? 'has-lock' : ''} ${fullScreen ? 'camera-fullscreen' : ''}`}>
           <video ref={videoRef} className="camera-view" muted playsInline />
           <div className="camera-overlay" />
           <div className="scan-frame"><span /><span /><span /><span /><i /></div>
@@ -397,6 +440,7 @@ export default function Receiver({ active = true }) {
           )}
           {tracking && <><div className={`tracking-badge ${tracking.valid ? '' : 'foreign'}`}><span /> {tracking.label.toLowerCase()} <strong>{tracking.confidence}%</strong></div><div className={`confidence-meter ${tracking.valid ? '' : 'foreign'}`}><i style={{ width: `${tracking.confidence}%` }} /></div></>}
           {autoZoom > 0 && <div className="auto-zoom-badge">AUTO ZOOM <strong>{autoZoom.toFixed(1)}×</strong></div>}
+          {scanning && <><div className="vision-assist-badge"><span>✦</span> ON-DEVICE VISION</div><button type="button" className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullScreen ? 'Exit fullscreen camera' : 'Open fullscreen camera'}><Icon name={fullScreen ? 'collapse' : 'expand'} size={19} /></button></>}
           {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera preview</strong><small>Your browser will ask for permission</small></div>}
         </div>
       )}
@@ -405,7 +449,7 @@ export default function Receiver({ active = true }) {
 
       {!result && receiveMode === 'camera' && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}</div>}
 
-      {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA QUALITY</span><strong>{cameraQuality.label}</strong>{nativeFastScan && <em className="native-fast">⚡ Native fast scan</em>}</div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div><small>{cameraQuality.score}% signal score</small><small>Recommended sender speed: <strong>{cameraQuality.recommendation}</strong></small></div></div>}
+      {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA QUALITY</span><strong>{cameraQuality.label}</strong>{nativeFastScan && <em className="native-fast">✦ Smart multi-scale detect</em>}</div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div><small>{cameraQuality.score}% signal score</small><small>Recommended sender speed: <strong>{cameraQuality.recommendation}</strong></small></div></div>}
       {!result && importSummary && <div className="import-summary"><Icon name="image" size={16} /> {importSummary}</div>}
 
       {!result && <div className="status-card" aria-live="polite"><div className="status-line"><div><span className={`status-indicator ${scanning || importing ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><div className="frame-map" aria-label={`${progress.received} of ${progress.total} frames available`}>{frameMap.map((frameState, index) => <span className={frameState} key={index} />)}</div><div className="receive-metrics"><small>{progress.direct} scanned{progress.recovery > 0 ? ` + ${progress.recovery} recovered` : ''} · {progress.total - progress.received} missing</small>{scanRate > 0 && <small>{scanRate.toFixed(1)} frames/s · ~{remainingSeconds}s left</small>}</div></>}</div>}
