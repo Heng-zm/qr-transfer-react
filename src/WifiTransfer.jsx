@@ -87,6 +87,19 @@ async function toBytes(data) {
   return null
 }
 
+function WifiIcon({ name, size = 22 }) {
+  const paths = {
+    send: <><path d="M12 19V5" /><path d="m6 11 6-6 6 6" /><path d="M5 19h14" /></>,
+    receive: <><path d="M12 5v14" /><path d="m18 13-6 6-6-6" /><path d="M5 5h14" /></>,
+    file: <><path d="M7 3h7l4 4v14H7z" /><path d="M14 3v5h5" /><path d="M9.5 13h5M9.5 17h5" /></>,
+    scan: <><path d="M4 9V5a1 1 0 0 1 1-1h4M15 4h4a1 1 0 0 1 1 1v4M20 15v4a1 1 0 0 1-1 1h-4M9 20H5a1 1 0 0 1-1-1v-4" /><path d="M8 12h8" /></>,
+    link: <><path d="M8.5 15.5 6 18a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0" transform="translate(3)" /><path d="m15.5 8.5 2.5-2.5a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0" transform="translate(-3)" /><path d="m9 15 6-6" /></>,
+    check: <path d="m5 12 4 4L19 6" />,
+    download: <><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></>,
+  }
+  return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
+}
+
 function PairScanner({ onCode }) {
   const videoRef = useRef(null)
   const controlsRef = useRef(null)
@@ -118,7 +131,7 @@ function PairScanner({ onCode }) {
     return () => { cancelled = true; try { controlsRef.current?.stop() } catch {} }
   }, [])
 
-  return <div className="wifi-scanner"><video ref={videoRef} muted playsInline /><div className="wifi-scan-target"><span /><span /><span /><span /></div>{error && <div className="error-box">{error}</div>}</div>
+  return <div className="wifi-scanner"><video ref={videoRef} muted playsInline /><div className="wifi-scanner-copy"><WifiIcon name="scan" size={16} /><span>Point at the sender QR</span></div><div className="wifi-scan-target"><span /><span /><span /><span /></div>{error && <div className="error-box">{error}</div>}</div>
 }
 
 export default function WifiTransfer({ active = true }) {
@@ -268,18 +281,22 @@ export default function WifiTransfer({ active = true }) {
 
   return (
     <section className="panel wifi-panel">
-      <div className="panel-heading"><div><div className="step-label">LOCAL WI-FI</div><h2>Direct device transfer</h2></div>{stage !== 'idle' && <button className="ghost-button compact" onClick={() => reset()}>Reset</button>}</div>
-      <div className="segmented"><button className={role === 'send' ? 'active' : ''} onClick={() => reset('send')}>Send</button><button className={role === 'receive' ? 'active' : ''} onClick={() => reset('receive')}>Receive</button></div>
+      <div className="panel-heading wifi-heading"><div><div className="step-label">LOCAL WI-FI</div><h2>Send without the wait</h2><p>Pair once, then transfer directly between devices.</p></div>{stage !== 'idle' && <button className="ghost-button compact" onClick={() => reset()}>Start over</button>}</div>
+      <div className="wifi-mode-badge"><span /> ONE-SCAN MODE</div>
+      <div className="segmented wifi-role-switch">
+        <button className={role === 'send' ? 'active' : ''} onClick={() => reset('send')} aria-pressed={role === 'send'}><WifiIcon name="send" /><span><strong>Send</strong><small>Show one code</small></span></button>
+        <button className={role === 'receive' ? 'active' : ''} onClick={() => reset('receive')} aria-pressed={role === 'receive'}><WifiIcon name="receive" /><span><strong>Receive</strong><small>Scan and save</small></span></button>
+      </div>
 
-      {stage === 'idle' && role === 'send' && <><label className="drop-zone wifi-file"><input type="file" onChange={(event) => { setFile(event.target.files?.[0] || null); setError('') }} /><strong>{file ? file.name : 'Choose a file'}</strong><small>{file ? formatBytes(file.size) : 'No fixed size cap · same Wi-Fi'}</small></label><button className="primary-button full" disabled={!file || busy} onClick={createTransfer}>{busy ? 'Preparing…' : 'Create Wi-Fi transfer'}</button></>}
-      {stage === 'idle' && role === 'receive' && <button className="primary-button full" onClick={() => { setStage('scan-sender'); setStatus('Scan the sender code') }}>Scan sender code</button>}
+      {stage === 'idle' && role === 'send' && <div className="wifi-action-view"><label className={`drop-zone wifi-file ${file ? 'has-file' : ''}`}><input type="file" onChange={(event) => { setFile(event.target.files?.[0] || null); setError('') }} /><span className="wifi-action-icon"><WifiIcon name="file" size={27} /></span><strong>{file ? file.name : 'Choose a file to send'}</strong><small>{file ? `${formatBytes(file.size)} · Tap to replace` : 'No fixed size cap · same Wi-Fi'}</small><em>{file ? 'Ready to pair' : 'Browse device'}</em></label><button className="primary-button full wifi-cta" disabled={!file || busy} onClick={createTransfer}>{busy ? <><span className="spinner" /> Preparing secure link</> : <><WifiIcon name="link" /> Create transfer code</>}</button></div>}
+      {stage === 'idle' && role === 'receive' && <div className="wifi-receive-ready"><span className="wifi-radar"><WifiIcon name="scan" size={30} /></span><div><strong>Scan once. Receive directly.</strong><small>The sender keeps their QR open while you connect.</small></div><button className="primary-button full wifi-cta" onClick={() => { setStage('scan-sender'); setStatus('Scan the sender code') }}><WifiIcon name="scan" /> Open camera</button></div>}
 
-      {stage === 'waiting' && <div className="wifi-pair-code"><QRCodeView value={pairCode} size={340} /><strong>{status}</strong><small>Keep this screen open. No return scan is needed.</small></div>}
+      {stage === 'waiting' && <div className="wifi-pair-code"><div className="wifi-state-heading"><span className="wifi-live-dot" /><div><strong>{status}</strong><small>Keep this screen open—your camera is not needed.</small></div></div><div className="wifi-qr-shell"><QRCodeView value={pairCode} size={340} /></div><div className="wifi-scan-once"><WifiIcon name="receive" size={18} /><span>Receiver scans once</span></div></div>}
       {stage === 'scan-sender' && <PairScanner onCode={joinTransfer} />}
-      {(stage === 'connecting' || stage === 'sending' || stage === 'receiving' || stage === 'complete') && <div className="wifi-progress"><strong>{status}</strong><div className="progress-track"><div className="progress-fill" style={{ width: `${progress}%` }} /></div><span>{progress}%</span></div>}
-      {result && <button className="primary-button full" onClick={saveResult}>Save {result.name}</button>}
+      {(stage === 'connecting' || stage === 'sending' || stage === 'receiving' || stage === 'complete') && <div className={`wifi-progress ${stage === 'complete' ? 'is-complete' : ''}`}><div className="wifi-progress-icon">{stage === 'complete' ? <WifiIcon name="check" /> : <span className="wifi-live-dot" />}</div><div className="wifi-progress-copy"><strong>{status}</strong><small>{stage === 'connecting' ? 'Finding the fastest direct route' : stage === 'complete' ? 'Integrity check passed' : 'Keep both devices on this screen'}</small></div><span>{progress}%</span><div className="progress-track"><div className="progress-fill" style={{ width: `${progress}%` }} /></div></div>}
+      {result && <button className="primary-button full wifi-cta" onClick={saveResult}><WifiIcon name="download" /> Save {result.name}</button>}
       {error && <div className="error-box" role="alert">{error}</div>}
-      <div className="wifi-note">One receiver scan · internet pairing · peer-to-peer file data</div>
+      <div className="wifi-trust-row"><span><i /> One receiver scan</span><span><i /> Direct file data</span><span><i /> SHA-256 verified</span></div>
     </section>
   )
 }
