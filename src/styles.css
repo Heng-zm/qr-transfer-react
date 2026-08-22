@@ -30,7 +30,7 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .hero-copy { padding: clamp(34px, 6vw, 56px) 0 22px; max-width: 720px; animation: reveal-up .72s .09s var(--motion-smooth) both; }
 .step-label { color: var(--accent-strong); font-size: .7rem; font-weight: 850; letter-spacing: .15em; }
 .hero-copy h2 { margin: 0; font-size: clamp(2.15rem, 7vw, 4.5rem); line-height: .99; letter-spacing: -.065em; max-width: 740px; }
-.main-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; padding: 6px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface-3); animation: reveal-up .65s .18s var(--motion-smooth) both; transition: background-color .35s ease, border-color .35s ease; }
+.main-tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 14px; padding: 6px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface-3); animation: reveal-up .65s .18s var(--motion-smooth) both; transition: background-color .35s ease, border-color .35s ease; }
 .main-tabs button { display: flex; align-items: center; justify-content: center; gap: 11px; min-height: 66px; padding: 10px 16px; border: 1px solid transparent; border-radius: 13px; background: transparent; color: var(--muted); text-align: left; }
 .main-tabs strong { color: inherit; }
 .main-tabs button:hover:not(.active) { color: var(--text); background: color-mix(in srgb, var(--surface-2) 62%, transparent); }
@@ -184,6 +184,23 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .quality-meter { height: 6px; overflow: hidden; border-radius: 99px; background: var(--border); }
 .quality-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffbe50, var(--accent)); transition: width .25s ease; }
 .import-summary { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 12px; color: var(--muted); font-size: .74rem; }
+.wifi-file { min-height: 180px; }
+.wifi-pair-code { display: grid; place-items: center; gap: 15px; padding: 20px; border-radius: 18px; background: linear-gradient(145deg, #fff, #f5faef); color: #17200e; text-align: center; }
+.wifi-pair-code .qr-code-frame { width: min(100%, 370px); }
+.wifi-scanner { position: relative; overflow: hidden; min-height: clamp(360px, 60vh, 600px); border: 1px solid var(--border); border-radius: 18px; background: #050706; }
+.wifi-scanner video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.wifi-scanner .error-box { position: absolute; left: 14px; right: 14px; bottom: 14px; }
+.wifi-scan-target { position: absolute; left: 50%; top: 50%; width: min(62%, 310px); aspect-ratio: 1; transform: translate(-50%, -50%); }
+.wifi-scan-target::after { content: ''; position: absolute; left: 6%; right: 6%; top: 5%; height: 2px; background: linear-gradient(90deg, transparent, var(--accent), transparent); box-shadow: 0 0 12px var(--accent); animation: scan-beam 1.45s cubic-bezier(.45,0,.2,1) infinite; }
+.wifi-scan-target span { position: absolute; width: 34px; height: 34px; border-style: solid; border-color: var(--accent); filter: drop-shadow(0 0 6px rgba(168,243,74,.5)); }
+.wifi-scan-target span:nth-child(1) { left: 0; top: 0; border-width: 3px 0 0 3px; border-radius: 9px 0 0; }
+.wifi-scan-target span:nth-child(2) { right: 0; top: 0; border-width: 3px 3px 0 0; border-radius: 0 9px 0 0; }
+.wifi-scan-target span:nth-child(3) { left: 0; bottom: 0; border-width: 0 0 3px 3px; border-radius: 0 0 0 9px; }
+.wifi-scan-target span:nth-child(4) { right: 0; bottom: 0; border-width: 0 3px 3px 0; border-radius: 0 0 9px; }
+.wifi-progress { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 12px; padding: 20px; border: 1px solid var(--border); border-radius: 16px; background: var(--surface-3); }
+.wifi-progress .progress-track { grid-column: 1 / -1; }
+.wifi-progress > span { color: var(--accent-strong); font-weight: 800; font-variant-numeric: tabular-nums; }
+.wifi-note { margin-top: 16px; color: var(--faint); font-size: .68rem; text-align: center; }
 .status-card, .result-card { margin-top: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 15px; background: var(--surface-3); animation: reveal-up .38s var(--motion-smooth) both; }
 .status-line, .status-line > div { display: flex; justify-content: space-between; align-items: center; gap: 9px; } .status-line > div { justify-content: flex-start; }
 .status-indicator { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); } .status-indicator.active { background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent); animation: pulse 1.2s infinite; }

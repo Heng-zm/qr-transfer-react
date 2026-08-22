@@ -14,6 +14,7 @@ A React/Vite app that transfers text and files by showing animated QR codes on t
 - Automatic camera calibration with a recommended sender speed
 - Native accelerated QR detection where the browser supports it
 - Multi-image QR screenshot importing as an alternative to live camera scanning
+- Same-Wi-Fi WebRTC file transfer paired with two QR codes
 - Copy feedback, offline file download, and clear integrity status
 
 ## What it does
@@ -21,7 +22,7 @@ A React/Vite app that transfers text and files by showing animated QR codes on t
 - No backend
 - No account
 - No Bluetooth transfer
-- No Wi-Fi/network transfer between sender and receiver
+- Direct same-Wi-Fi file transfer without a relay server
 - Text transfer
 - File transfer
 - Animated multi-frame QR protocol
@@ -72,6 +73,16 @@ For truly offline receiver use, install the app as a PWA while it is available o
 6. The receiver collects unique frames until complete.
 7. Text can be copied; files can be saved.
 
+## Same-Wi-Fi flow
+
+1. Open **Wi-Fi** on both devices connected to the same local network.
+2. The sender chooses a file and creates a pairing code.
+3. The receiver scans the sender code and shows an answer code.
+4. The sender scans the answer; the file then streams directly over WebRTC.
+5. The receiver saves the file after SHA-256 verification.
+
+The Wi-Fi mode uses no STUN or TURN relay. Router client isolation or restrictive browser networking policies can prevent a direct connection.
+
 ## Practical limits
 
-QR transfer is optical, so large files take many frames. This build limits files to 2 MB, but QR is an optical channel, so files under about 200 KB are much more practical. Use the `Easy scan` speed on lower-quality cameras.
+QR transfer is optical, so large files take many frames. QR mode limits files to 2 MB, and files under about 200 KB are more practical. Same-Wi-Fi mode supports files up to 50 MB. Use the `Easy` QR speed on lower-quality cameras.

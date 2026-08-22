@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import Sender from './Sender.jsx'
 import Receiver from './Receiver.jsx'
+import WifiTransfer from './WifiTransfer.jsx'
 
 function Icon({ name, size = 20 }) {
   const paths = {
     send: <><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></>,
     receive: <><path d="M12 5v14"/><path d="m18 13-6 6-6-6"/></>,
+    wifi: <><path d="M5 12.5a10 10 0 0 1 14 0M8.5 16a5 5 0 0 1 7 0"/><circle cx="12" cy="20" r="1"/></>,
     sun: <><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.42 1.42M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.42-1.42M17.66 6.34l1.41-1.41"/></>,
     moon: <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79Z"/>,
   }
@@ -41,16 +43,18 @@ export default function App() {
       </header>
 
       <section className="hero-copy">
-        <h2>Send files through the camera.</h2>
+        <h2>Send files directly.</h2>
       </section>
 
       <nav className="main-tabs" aria-label="Transfer mode">
         <button className={tab === 'send' ? 'active' : ''} onClick={() => setTab('send')} aria-pressed={tab === 'send'}><Icon name="send" /><strong>Send</strong></button>
         <button className={tab === 'receive' ? 'active' : ''} onClick={() => setTab('receive')} aria-pressed={tab === 'receive'}><Icon name="receive" /><strong>Receive</strong></button>
+        <button className={tab === 'wifi' ? 'active' : ''} onClick={() => setTab('wifi')} aria-pressed={tab === 'wifi'}><Icon name="wifi" /><strong>Wi-Fi</strong></button>
       </nav>
 
       <div className="content-enter" hidden={tab !== 'send'}><Sender /></div>
       <div className="content-enter" hidden={tab !== 'receive'}><Receiver active={tab === 'receive'} /></div>
+      <div className="content-enter" hidden={tab !== 'wifi'}><WifiTransfer active={tab === 'wifi'} /></div>
     </main>
   )
 }
