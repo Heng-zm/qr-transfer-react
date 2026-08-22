@@ -3,6 +3,11 @@ import Sender from './Sender.jsx'
 import Receiver from './Receiver.jsx'
 import WifiTransfer from './WifiTransfer.jsx'
 
+function sharedWifiCode() {
+  try { return new URLSearchParams(window.location.hash.slice(1)).get('wifi') || '' }
+  catch { return '' }
+}
+
 function Icon({ name, size = 20 }) {
   const paths = {
     send: <><path d="M12 19V5"/><path d="m6 11 6-6 6 6"/></>,
@@ -15,7 +20,8 @@ function Icon({ name, size = 20 }) {
 }
 
 export default function App() {
-  const [tab, setTab] = useState('send')
+  const [incomingWifiCode, setIncomingWifiCode] = useState(sharedWifiCode)
+  const [tab, setTab] = useState(() => sharedWifiCode() ? 'wifi' : 'send')
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('qr-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
@@ -29,6 +35,17 @@ export default function App() {
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', theme === 'dark' ? '#080b0f' : '#f1f4ed')
     try { localStorage.setItem('qr-theme', theme) } catch {}
   }, [theme])
+
+  useEffect(() => {
+    function openSharedWifiLink() {
+      const code = sharedWifiCode()
+      if (!code) return
+      setIncomingWifiCode(code)
+      setTab('wifi')
+    }
+    window.addEventListener('hashchange', openSharedWifiLink)
+    return () => window.removeEventListener('hashchange', openSharedWifiLink)
+  }, [])
 
   return (
     <main className="app-shell">
@@ -54,7 +71,7 @@ export default function App() {
 
       <div className="content-enter" hidden={tab !== 'send'}><Sender /></div>
       <div className="content-enter" hidden={tab !== 'receive'}><Receiver active={tab === 'receive'} /></div>
-      <div className="content-enter" hidden={tab !== 'wifi'}><WifiTransfer active={tab === 'wifi'} /></div>
+      <div className="content-enter" hidden={tab !== 'wifi'}><WifiTransfer active={tab === 'wifi'} sharedPairCode={incomingWifiCode} onSharedPairConsumed={() => { setIncomingWifiCode(''); window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`) }} /></div>
     </main>
   )
 }
