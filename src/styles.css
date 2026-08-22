@@ -9,6 +9,7 @@
 :root[data-theme="light"] { color: #17200e; background: #f1f4ed; --bg: #f1f4ed; --surface: #fff; --surface-2: #f4f7f1; --surface-3: #e9eee5; --border: #d6ddd0; --text: #17200e; --muted: #66705f; --faint: #7a8374; --accent: #78c722; --accent-strong: #65b313; --accent-text: #0f1b05; --danger: #a82737; --danger-bg: #fff0f1; --shadow: 0 24px 70px rgba(40,55,25,.10); }
 * { box-sizing: border-box; }
 html { min-width: 320px; min-height: 100%; background: var(--bg); transition: background-color .45s var(--motion-smooth), color .35s ease; }
+html.camera-fullscreen-open, html.camera-fullscreen-open body { overflow: hidden; overscroll-behavior: none; }
 body { position: relative; isolation: isolate; overflow-x: hidden; margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); color: var(--text); }
 body::before { content: ''; position: fixed; z-index: -1; inset: -35vh -25vw; pointer-events: none; background: radial-gradient(circle at 34% 18%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 25%), radial-gradient(circle at 78% 68%, color-mix(in srgb, #68cfff 6%, transparent), transparent 22%); filter: blur(2px); animation: ambient-drift 18s ease-in-out infinite alternate; }
 button, textarea, select, input { font: inherit; } button { cursor: pointer; transition: transform .2s var(--motion-spring), border-color .22s ease, background-color .22s ease, color .22s ease, box-shadow .22s ease; } button:disabled { cursor: not-allowed; opacity: .42; }
@@ -102,7 +103,7 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .camera-shell.is-scanning { box-shadow: inset 0 0 0 1px rgba(168,243,74,.08), 0 18px 50px rgba(0,0,0,.18); }
 .camera-shell.has-lock { border-color: rgba(168,243,74,.7); box-shadow: inset 0 0 32px rgba(168,243,74,.08), 0 0 0 4px rgba(168,243,74,.08), 0 20px 60px rgba(0,0,0,.22); }
 .camera-shell[hidden] { display: none; }
-.camera-shell:fullscreen, .camera-shell.camera-fullscreen { position: fixed; inset: 0; z-index: 1000; width: 100vw; height: 100dvh; min-height: 0; border: 0; border-radius: 0; background: #000; }
+.camera-shell:fullscreen, .camera-shell:-webkit-full-screen, .camera-shell.camera-fullscreen { position: fixed; inset: 0; z-index: 1000; width: 100vw; height: 100vh; height: 100dvh; min-height: 0; border: 0; border-radius: 0; background: #000; }
 .camera-view { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; } .camera-overlay { position: absolute; inset: 0; background: radial-gradient(circle at center, transparent 22%, rgba(0,0,0,.18) 68%); pointer-events: none; }
 .qr-tracker { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .qr-tracker polygon { fill: rgba(168,243,74,.11); stroke: #a8f34a; stroke-width: 3; stroke-linejoin: round; vector-effect: non-scaling-stroke; filter: drop-shadow(0 0 7px rgba(168,243,74,.65)); animation: tracker-in .16s ease-out; }
@@ -140,10 +141,24 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 @keyframes tracker-in { from { opacity: 0; transform: scale(.96); transform-origin: center; } }
 .camera-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #879083; background: radial-gradient(circle at center, #182018, #080b09); }
 .camera-placeholder strong { color: #e8eee5; } .camera-icon { width: 62px; height: 62px; display: grid; place-items: center; margin-bottom: 5px; border: 1px solid #2f3d2a; border-radius: 50%; color: var(--accent); background: #111710; }
-.scan-frame { position: absolute; inset: 50% auto auto 50%; width: min(58%, 300px); aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; }
-.scan-frame span { position: absolute; width: 38px; height: 38px; border-color: var(--accent); border-style: solid; z-index: 2; }
+.scan-frame { position: absolute; inset: 50% auto auto 50%; width: min(58%, 300px); aspect-ratio: 1; transform: translate(-50%, -50%); pointer-events: none; transition: opacity .28s ease, transform .32s var(--motion-smooth); }
+.scan-frame::before, .scan-frame::after { content: ''; position: absolute; pointer-events: none; }
+.scan-frame::before { inset: 15%; border: 1px solid rgba(168,243,74,.2); border-radius: 50%; animation: scan-focus 2.1s ease-in-out infinite; }
+.scan-frame::after { inset: -7%; border: 1px solid rgba(168,243,74,.38); border-radius: 23px; opacity: 0; animation: scan-target 1.9s var(--motion-smooth) infinite; }
+.scan-frame span { position: absolute; width: 38px; height: 38px; border-color: var(--accent); border-style: solid; z-index: 2; filter: drop-shadow(0 0 5px rgba(168,243,74,.42)); animation: scan-corner 1.4s ease-in-out infinite alternate; }
 .scan-frame span:nth-child(1) { left: 0; top: 0; border-width: 3px 0 0 3px; border-radius: 9px 0 0; } .scan-frame span:nth-child(2) { right: 0; top: 0; border-width: 3px 3px 0 0; border-radius: 0 9px 0 0; } .scan-frame span:nth-child(3) { left: 0; bottom: 0; border-width: 0 0 3px 3px; border-radius: 0 0 0 9px; } .scan-frame span:nth-child(4) { right: 0; bottom: 0; border-width: 0 3px 3px 0; border-radius: 0 0 9px; }
-.is-scanning .scan-frame i { position: absolute; left: 4%; right: 4%; height: 1px; top: 7%; background: var(--accent); box-shadow: 0 0 12px var(--accent); animation: scan 2.2s ease-in-out infinite alternate; } @keyframes scan { to { top: 92%; } }
+.scan-frame span:nth-child(2), .scan-frame span:nth-child(3) { animation-delay: -.7s; }
+.is-scanning .scan-frame i { position: absolute; left: 5%; right: 5%; height: 2px; top: 4%; z-index: 1; border-radius: 99px; background: linear-gradient(90deg, transparent, var(--accent) 18%, #fff 50%, var(--accent) 82%, transparent); box-shadow: 0 0 10px var(--accent), 0 0 24px rgba(168,243,74,.28); animation: scan-beam 1.45s cubic-bezier(.45,0,.2,1) infinite; }
+.is-scanning .scan-frame i::after { content: ''; position: absolute; left: 9%; right: 9%; top: 0; height: 34px; background: linear-gradient(to bottom, rgba(168,243,74,.13), transparent); transform: translateY(-100%); }
+.camera-fullscreen .scan-frame { width: min(52vmin, 380px); }
+.camera-shell.has-lock .scan-frame { opacity: .34; transform: translate(-50%, -50%) scale(.94); }
+.camera-shell.has-lock .scan-frame::after { animation: scan-lock .48s var(--motion-spring) both; }
+.camera-shell.has-lock .scan-frame i, .camera-shell.has-lock .scan-frame span { animation-play-state: paused; }
+@keyframes scan-beam { 0% { top: 4%; opacity: 0; } 12% { opacity: 1; } 82% { opacity: 1; } 100% { top: 96%; opacity: 0; } }
+@keyframes scan-focus { 50% { opacity: .35; transform: scale(1.08); } }
+@keyframes scan-target { 0% { opacity: 0; transform: scale(.88); } 34% { opacity: .32; } 78%, 100% { opacity: 0; transform: scale(1.04); } }
+@keyframes scan-corner { to { opacity: .68; filter: drop-shadow(0 0 9px rgba(168,243,74,.72)); } }
+@keyframes scan-lock { from { opacity: .8; transform: scale(1.08); } to { opacity: 0; transform: scale(.92); } }
 .receiver-controls { justify-content: center; }
 .screenshot-zone { min-height: 300px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; padding: 28px; border: 1px dashed color-mix(in srgb, var(--muted) 58%, transparent); border-radius: 19px; background: var(--surface-3); text-align: center; cursor: pointer; transition: border-color .18s ease, background .18s ease, transform .18s ease; }
 .screenshot-zone:hover, .screenshot-zone.dragging { border-color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 6%, var(--surface-3)); transform: translateY(-1px); }

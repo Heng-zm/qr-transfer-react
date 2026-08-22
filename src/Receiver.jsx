@@ -80,18 +80,49 @@ export default function Receiver({ active = true }) {
   }, [])
 
   useEffect(() => {
-    if (!active) pauseScanner()
+    if (!active) { exitCameraFullscreen(); pauseScanner() }
   }, [active])
 
   useEffect(() => {
-    const syncFullscreen = () => setFullScreen(document.fullscreenElement === cameraShellRef.current)
+    const syncFullscreen = () => {
+      setFullScreen(getFullscreenElement() === cameraShellRef.current)
+      trackingHistoryRef.current = null
+      setTracking(null)
+    }
     document.addEventListener('fullscreenchange', syncFullscreen)
-    return () => document.removeEventListener('fullscreenchange', syncFullscreen)
+    document.addEventListener('webkitfullscreenchange', syncFullscreen)
+    return () => {
+      document.removeEventListener('fullscreenchange', syncFullscreen)
+      document.removeEventListener('webkitfullscreenchange', syncFullscreen)
+    }
   }, [])
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('camera-fullscreen-open', fullScreen)
+    return () => document.documentElement.classList.remove('camera-fullscreen-open')
+  }, [fullScreen])
+
+  useEffect(() => {
+    const resetTrackerViewport = () => { trackingHistoryRef.current = null; setTracking(null) }
+    window.addEventListener('resize', resetTrackerViewport)
+    window.addEventListener('orientationchange', resetTrackerViewport)
+    return () => {
+      window.removeEventListener('resize', resetTrackerViewport)
+      window.removeEventListener('orientationchange', resetTrackerViewport)
+    }
+  }, [])
+
+  function getFullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement || null }
+  async function exitCameraFullscreen() {
+    const shell = cameraShellRef.current
+    const exitFullscreen = document.exitFullscreen || document.webkitExitFullscreen
+    try { if (shell && getFullscreenElement() === shell && exitFullscreen) await exitFullscreen.call(document) } catch {}
+    setFullScreen(false)
+  }
 
   function cancelNativeScanLoop() { try { nativeScanCancelRef.current?.() } catch {} nativeScanCancelRef.current = null }
   function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelNativeScanLoop(); nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; nativeMissStreakRef.current = 0; smartScanCycleRef.current = 0; smartCropAvailableRef.current = true; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setNativeFastScan(false); setScanning(false) }
-  function resetTransfer() { importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; scanRateStartCountRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }); setFullScreen(false) }
+  function resetTransfer() { exitCameraFullscreen(); importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; scanRateStartCountRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }) }
 
   function pauseScanner() {
     const hasFrames = framesRef.current.size > 0
@@ -223,7 +254,7 @@ export default function Receiver({ active = true }) {
       setStatus(transferStatus.recovery > 0 ? 'Recovering and verifying…' : 'Verifying…')
       try {
         const rebuilt = await rebuildTransfer(framesRef.current)
-        setResult(rebuilt); setStatus('Transfer complete'); stopScanner()
+        exitCameraFullscreen(); setResult(rebuilt); setStatus('Transfer complete'); stopScanner()
         return 'complete'
       } catch (error) {
         setError(error?.message || 'Could not rebuild transfer.'); setStatus('Transfer failed'); rebuildingRef.current = false
@@ -389,17 +420,18 @@ export default function Receiver({ active = true }) {
   async function toggleFullscreen() {
     const shell = cameraShellRef.current
     if (!shell) return
+    if (fullScreen || getFullscreenElement() === shell) { await exitCameraFullscreen(); return }
+    trackingHistoryRef.current = null
+    setTracking(null)
+    const requestFullscreen = shell.requestFullscreen || shell.webkitRequestFullscreen
+    if (!requestFullscreen) { setFullScreen(true); return }
     try {
-      if (document.fullscreenElement === shell) await document.exitFullscreen()
-      else if (shell.requestFullscreen) await shell.requestFullscreen()
-      else setFullScreen((current) => !current)
-    } catch { setFullScreen((current) => !current) }
+      await requestFullscreen.call(shell)
+      setFullScreen(true)
+    } catch { setFullScreen(true) }
   }
   async function stopFullscreenScanner() {
-    try {
-      if (document.fullscreenElement === cameraShellRef.current) await document.exitFullscreen()
-    } catch {}
-    setFullScreen(false)
+    await exitCameraFullscreen()
     pauseScanner()
   }
   async function toggleTorch() {
