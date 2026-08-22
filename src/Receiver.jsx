@@ -36,9 +36,10 @@ export default function Receiver({ active = true }) {
   const lastZoomAtRef = useRef(0)
   const qualitySamplesRef = useRef([])
   const cameraBaseScoreRef = useRef(0)
+  const importSessionRef = useRef(0)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready when you are')
-  const [progress, setProgress] = useState({ received: 0, total: 0, direct: 0, recovery: 0 })
+  const [progress, setProgress] = useState({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] })
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [cameraFacing, setCameraFacing] = useState('environment')
@@ -51,12 +52,16 @@ export default function Receiver({ active = true }) {
   const [cameraQuality, setCameraQuality] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importSummary, setImportSummary] = useState('')
+  const [receiveMode, setReceiveMode] = useState('camera')
+  const [importDragging, setImportDragging] = useState(false)
+  const [importProgress, setImportProgress] = useState({ current: 0, total: 0 })
 
   useEffect(() => () => {
     scanSessionRef.current += 1
     try { controlsRef.current?.stop() } catch {}
     clearTimeout(copyTimerRef.current)
     clearTimeout(trackingTimerRef.current)
+    importSessionRef.current += 1
   }, [])
 
   useEffect(() => {
@@ -64,7 +69,7 @@ export default function Receiver({ active = true }) {
   }, [active])
 
   function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setScanning(false) }
-  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary('') }
+  function resetTransfer() { importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }) }
 
   function updateCalibration(confidence) {
     const samples = [...qualitySamplesRef.current, confidence].slice(-12)
@@ -235,24 +240,35 @@ export default function Receiver({ active = true }) {
     try { await track.applyConstraints({ advanced: [{ torch: next }] }); setTorchOn(next) }
     catch { setTorchAvailable(false); setError('Torch control is not available for this camera.') }
   }
-  async function importScreenshots(event) {
-    const selected = [...(event.target.files || [])]
-    event.target.value = ''
+  function selectReceiveMode(nextMode) {
+    if (importing) return
+    if (nextMode === 'images') stopScanner()
+    setReceiveMode(nextMode)
+    setError('')
+  }
+  async function importFiles(fileList) {
+    if (importing) return
+    const selected = [...(fileList || [])]
     if (!selected.length) return
     if (selected.length > 250) { setError('Import up to 250 QR screenshots at a time.'); return }
 
     stopScanner()
     if (!framesRef.current.size) resetTransfer()
-    setImporting(true); setError(''); setImportSummary('Reading QR images…')
+    const importSession = ++importSessionRef.current
+    setImporting(true); setImportProgress({ current: 0, total: selected.length }); setError(''); setImportSummary('Reading QR images…')
     const reader = new BrowserQRCodeReader()
     const counts = { added: 0, recovery: 0, duplicate: 0, invalid: 0, different: 0 }
     let completed = false
 
-    for (const file of selected) {
+    for (let fileIndex = 0; fileIndex < selected.length; fileIndex += 1) {
+      if (importSession !== importSessionRef.current) break
+      const file = selected[fileIndex]
+      setImportProgress({ current: fileIndex + 1, total: selected.length })
       if (!file.type.startsWith('image/')) { counts.invalid += 1; continue }
       const url = URL.createObjectURL(file)
       try {
         const decoded = await reader.decodeFromImageUrl(url)
+        if (importSession !== importSessionRef.current) break
         const outcome = await processDecodedResult(decoded, false)
         if (outcome in counts) counts[outcome] += 1
         if (outcome === 'complete') { completed = true; break }
@@ -260,10 +276,16 @@ export default function Receiver({ active = true }) {
       finally { URL.revokeObjectURL(url) }
     }
 
+    if (importSession !== importSessionRef.current) return
     const accepted = counts.added + counts.recovery
     setImportSummary(`${accepted} new · ${counts.duplicate} duplicate · ${counts.invalid + counts.different} skipped`)
     if (!completed) setStatus(accepted ? 'Screenshots imported — add more or continue scanning' : 'No new BeamQR frames found')
-    setImporting(false)
+    setImporting(false); setImportProgress({ current: 0, total: 0 })
+  }
+  function importScreenshots(event) {
+    const files = [...(event.target.files || [])]
+    event.target.value = ''
+    importFiles(files)
   }
   function saveResult() { if (!result) return; const blob = new Blob([result.bytes], { type: result.mime || 'application/octet-stream' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = result.name || 'received-file'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000) }
   async function copyText() {
@@ -279,19 +301,27 @@ export default function Receiver({ active = true }) {
   const textResult = result?.kind === 'text' ? decoder.decode(result.bytes) : ''
   const remainingSeconds = scanRate > 0 ? Math.ceil((progress.total - progress.received) / scanRate) : 0
   const mapSize = Math.min(progress.total, 64)
+  const recoveredFrames = new Set(progress.recoveredIndices || [])
   const frameMap = Array.from({ length: mapSize }, (_, index) => {
     const start = Math.floor(index * progress.total / mapSize)
     const end = Math.max(start + 1, Math.floor((index + 1) * progress.total / mapSize))
-    for (let frame = start; frame < end; frame += 1) if (!framesRef.current.has(`d:${frame}`)) return false
-    return true
+    let state = 'captured'
+    for (let frame = start; frame < end; frame += 1) {
+      if (framesRef.current.has(`d:${frame}`)) continue
+      if (recoveredFrames.has(frame)) state = 'recovered'
+      else return ''
+    }
+    return state
   })
 
   return (
     <section className="panel receiver-panel">
       <div className="panel-heading"><div><div className="step-label">RECEIVE MODE</div><h2>{result ? 'Your transfer is ready' : 'Scan or import QR frames'}</h2><p>{result ? 'Integrity checked. The content is safe to open.' : 'Use the camera live, or import one or more QR screenshots.'}</p></div>{(progress.received > 0 || result) && <button className="ghost-button compact" onClick={() => { stopScanner(); resetTransfer() }}><Icon name="reset" size={17} /> Reset</button>}</div>
 
+      {!result && <div className="receive-methods" role="tablist" aria-label="Receive method"><button className={receiveMode === 'camera' ? 'active' : ''} onClick={() => selectReceiveMode('camera')} role="tab" aria-selected={receiveMode === 'camera'} disabled={importing}><span><Icon name="camera" size={20} /></span><div><strong>Live camera</strong><small>Fastest for animated QR</small></div></button><button className={receiveMode === 'images' ? 'active' : ''} onClick={() => selectReceiveMode('images')} role="tab" aria-selected={receiveMode === 'images'} disabled={importing}><span><Icon name="image" size={20} /></span><div><strong>QR screenshots</strong><small>Import one or many images</small></div></button></div>}
+
       {!result && (
-        <div className={`camera-shell ${scanning ? 'is-scanning' : ''} ${tracking?.valid ? 'has-lock' : ''}`}>
+        <div hidden={receiveMode !== 'camera'} className={`camera-shell ${scanning ? 'is-scanning' : ''} ${tracking?.valid ? 'has-lock' : ''}`}>
           <video ref={videoRef} className="camera-view" muted playsInline />
           <div className="camera-overlay" />
           <div className="scan-frame"><span /><span /><span /><span /><i /></div>
@@ -307,12 +337,14 @@ export default function Receiver({ active = true }) {
         </div>
       )}
 
-      {!result && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}<label className={`secondary-button import-button ${importing ? 'is-loading' : ''}`} aria-disabled={importing}><Icon name="image" size={18} /> {importing ? 'Reading…' : 'Import QR images'}<input type="file" accept="image/*" multiple disabled={importing} onChange={importScreenshots} /></label></div>}
+      {!result && receiveMode === 'images' && <label className={`screenshot-zone ${importDragging ? 'dragging' : ''} ${importing ? 'is-loading' : ''}`} onDragEnter={(event) => { event.preventDefault(); setImportDragging(true) }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setImportDragging(false)} onDrop={(event) => { event.preventDefault(); setImportDragging(false); importFiles(event.dataTransfer.files) }}><input type="file" accept="image/*" multiple disabled={importing} onChange={importScreenshots} /><span className="screenshot-icon"><Icon name="image" size={27} /></span><strong>{importing ? `Reading image ${importProgress.current} of ${importProgress.total}` : 'Drop QR screenshots here'}</strong><small>{importing ? 'Detecting and deduplicating QR frames…' : 'Select multiple images together · order does not matter'}</small>{!importing && <em>Choose images</em>}</label>}
+
+      {!result && receiveMode === 'camera' && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}</div>}
 
       {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA QUALITY</span><strong>{cameraQuality.label}</strong></div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div><small>{cameraQuality.score}% signal score</small><small>Recommended sender speed: <strong>{cameraQuality.recommendation}</strong></small></div></div>}
       {!result && importSummary && <div className="import-summary"><Icon name="image" size={16} /> {importSummary}</div>}
 
-      {!result && <div className="status-card" aria-live="polite"><div className="status-line"><div><span className={`status-indicator ${scanning || importing ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><div className="frame-map" aria-label={`${progress.received} of ${progress.total} frames available`}>{frameMap.map((captured, index) => <span className={captured ? 'captured' : ''} key={index} />)}</div><div className="receive-metrics"><small>{progress.direct} scanned{progress.recovery > 0 ? ` + ${progress.recovery} recovered` : ''} · {progress.total - progress.received} missing</small>{scanRate > 0 && <small>{scanRate.toFixed(1)} frames/s · ~{remainingSeconds}s left</small>}</div></>}</div>}
+      {!result && <div className="status-card" aria-live="polite"><div className="status-line"><div><span className={`status-indicator ${scanning || importing ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><div className="frame-map" aria-label={`${progress.received} of ${progress.total} frames available`}>{frameMap.map((frameState, index) => <span className={frameState} key={index} />)}</div><div className="receive-metrics"><small>{progress.direct} scanned{progress.recovery > 0 ? ` + ${progress.recovery} recovered` : ''} · {progress.total - progress.received} missing</small>{scanRate > 0 && <small>{scanRate.toFixed(1)} frames/s · ~{remainingSeconds}s left</small>}</div></>}</div>}
       {error && <div className="error-box" role="alert">{error}</div>}
 
       {result && <div className="result-card"><div className="success-orbit"><Icon name="shield" size={32} /></div><div className="success-badge">✓ SHA-256 verified</div><h3>{result.kind === 'text' ? 'Received text' : (result.name || 'Received file')}</h3><p>{formatBytes(result.bytes.length)} · received entirely offline</p>{result.kind === 'text' ? <><textarea ref={resultTextRef} className="text-input result-text" readOnly value={textResult} rows={8} /><button className="primary-button full" onClick={copyText}><Icon name="copy" size={18} /> {copied ? 'Copied!' : 'Copy text'}</button></> : <button className="primary-button full" onClick={saveResult}><Icon name="download" size={18} /> Save file</button>}</div>}

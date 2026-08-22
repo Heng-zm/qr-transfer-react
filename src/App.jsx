@@ -46,7 +46,7 @@ export default function App() {
         <p>No accounts, cloud, cables, or device pairing. Your camera is the connection.</p>
       </section>
 
-      <div className="trust-row" aria-label="Privacy features"><span>End-to-end local</span><span>No upload</span><span>SHA-256 verified</span></div>
+      <div className="trust-row" aria-label="Privacy features"><span>End-to-end local</span><span>Missing-frame recovery</span><span>SHA-256 verified</span></div>
 
       <nav className="main-tabs" aria-label="Transfer mode">
         <button className={tab === 'send' ? 'active' : ''} onClick={() => setTab('send')} aria-pressed={tab === 'send'}><Icon name="send" /><span><strong>Send</strong><small>Create QR frames</small></span></button>

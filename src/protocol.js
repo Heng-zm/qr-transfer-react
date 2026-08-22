@@ -151,25 +151,26 @@ function inspectV2Frames(frames) {
   }
 
   let recoverable = 0
+  const recoveredIndices = []
   for (const recovery of parity.values()) {
-    let missing = 0
-    for (let offset = 0; offset < recovery.ls.length; offset += 1) if (!data.has(recovery.s + offset)) missing += 1
-    if (missing === 1) recoverable += 1
+    const missing = []
+    for (let offset = 0; offset < recovery.ls.length; offset += 1) if (!data.has(recovery.s + offset)) missing.push(recovery.s + offset)
+    if (missing.length === 1) { recoverable += 1; recoveredIndices.push(missing[0]) }
   }
 
-  return { data, parity, direct: data.size, recoverable, total: frames[0]?.n || 0 }
+  return { data, parity, direct: data.size, recoverable, recoveredIndices, total: frames[0]?.n || 0 }
 }
 
 export function analyzeTransferFrames(framesMap) {
   const frames = [...framesMap.values()]
-  if (!frames.length) return { received: 0, direct: 0, recovery: 0, total: 0, complete: false }
+  if (!frames.length) return { received: 0, direct: 0, recovery: 0, recoveredIndices: [], total: 0, complete: false }
   if (frames[0].v === LEGACY_VERSION) {
     const received = new Set(frames.map((frame) => frame.i)).size
-    return { received, direct: received, recovery: 0, total: frames[0].n, complete: received === frames[0].n }
+    return { received, direct: received, recovery: 0, recoveredIndices: [], total: frames[0].n, complete: received === frames[0].n }
   }
   const status = inspectV2Frames(frames)
   const received = Math.min(status.total, status.direct + status.recoverable)
-  return { received, direct: status.direct, recovery: status.recoverable, total: status.total, complete: received === status.total }
+  return { received, direct: status.direct, recovery: status.recoverable, recoveredIndices: status.recoveredIndices, total: status.total, complete: received === status.total }
 }
 
 function rebuildLegacy(frames) {
