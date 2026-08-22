@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import Sender from './Sender.jsx'
-import Receiver from './Receiver.jsx'
-import WifiTransfer from './WifiTransfer.jsx'
+import { lazy, Suspense, useEffect, useState } from 'react'
+
+const Sender = lazy(() => import('./Sender.jsx'))
+const Receiver = lazy(() => import('./Receiver.jsx'))
+const WifiTransfer = lazy(() => import('./WifiTransfer.jsx'))
 
 function sharedWifiCode() {
   try { return new URLSearchParams(window.location.hash.slice(1)).get('wifi') || '' }
@@ -19,9 +20,14 @@ function Icon({ name, size = 20 }) {
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
+function PanelLoader() {
+  return <div className="panel panel-loader" role="status"><span className="spinner" /><span>Loading tools</span></div>
+}
+
 export default function App() {
   const [incomingWifiCode, setIncomingWifiCode] = useState(sharedWifiCode)
   const [tab, setTab] = useState(() => sharedWifiCode() ? 'wifi' : 'send')
+  const [loadedTabs, setLoadedTabs] = useState(() => new Set([sharedWifiCode() ? 'wifi' : 'send']))
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('qr-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
@@ -36,12 +42,22 @@ export default function App() {
     try { localStorage.setItem('qr-theme', theme) } catch {}
   }, [theme])
 
+  function openTab(nextTab) {
+    setLoadedTabs((current) => {
+      if (current.has(nextTab)) return current
+      const next = new Set(current)
+      next.add(nextTab)
+      return next
+    })
+    setTab(nextTab)
+  }
+
   useEffect(() => {
     function openSharedWifiLink() {
       const code = sharedWifiCode()
       if (!code) return
       setIncomingWifiCode(code)
-      setTab('wifi')
+      openTab('wifi')
     }
     window.addEventListener('hashchange', openSharedWifiLink)
     return () => window.removeEventListener('hashchange', openSharedWifiLink)
@@ -64,14 +80,14 @@ export default function App() {
       </section>
 
       <nav className="main-tabs" aria-label="Transfer mode">
-        <button className={tab === 'send' ? 'active' : ''} onClick={() => setTab('send')} aria-pressed={tab === 'send'}><Icon name="send" /><strong>Send</strong></button>
-        <button className={tab === 'receive' ? 'active' : ''} onClick={() => setTab('receive')} aria-pressed={tab === 'receive'}><Icon name="receive" /><strong>Receive</strong></button>
-        <button className={tab === 'wifi' ? 'active' : ''} onClick={() => setTab('wifi')} aria-pressed={tab === 'wifi'}><Icon name="wifi" /><strong>Wi-Fi</strong></button>
+        <button className={tab === 'send' ? 'active' : ''} onClick={() => openTab('send')} aria-pressed={tab === 'send'}><Icon name="send" /><strong>Send</strong></button>
+        <button className={tab === 'receive' ? 'active' : ''} onClick={() => openTab('receive')} aria-pressed={tab === 'receive'}><Icon name="receive" /><strong>Receive</strong></button>
+        <button className={tab === 'wifi' ? 'active' : ''} onClick={() => openTab('wifi')} aria-pressed={tab === 'wifi'}><Icon name="wifi" /><strong>Wi-Fi</strong></button>
       </nav>
 
-      <div className="content-enter" hidden={tab !== 'send'}><Sender /></div>
-      <div className="content-enter" hidden={tab !== 'receive'}><Receiver active={tab === 'receive'} /></div>
-      <div className="content-enter" hidden={tab !== 'wifi'}><WifiTransfer active={tab === 'wifi'} sharedPairCode={incomingWifiCode} onSharedPairConsumed={() => { setIncomingWifiCode(''); window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`) }} /></div>
+      {loadedTabs.has('send') && <div className="content-enter" hidden={tab !== 'send'}><Suspense fallback={<PanelLoader />}><Sender /></Suspense></div>}
+      {loadedTabs.has('receive') && <div className="content-enter" hidden={tab !== 'receive'}><Suspense fallback={<PanelLoader />}><Receiver active={tab === 'receive'} /></Suspense></div>}
+      {loadedTabs.has('wifi') && <div className="content-enter" hidden={tab !== 'wifi'}><Suspense fallback={<PanelLoader />}><WifiTransfer active={tab === 'wifi'} sharedPairCode={incomingWifiCode} onSharedPairConsumed={() => { setIncomingWifiCode(''); window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`) }} /></Suspense></div>}
     </main>
   )
 }

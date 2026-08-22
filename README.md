@@ -1,10 +1,13 @@
 # BeamQR
 
+Current release: **2.1.0**
+
 A React/Vite app that transfers text and files by showing animated QR codes on the sender and scanning them on the receiver.
 
 ## Interface features
 
 - Responsive dark and light themes
+- On-demand feature loading with preserved tab state
 - Drag-and-drop file selection with live transfer estimates
 - Adjustable QR animation speed, frame stepping, and fullscreen display
 - Circular dot-matrix QR styling with scan-safe finder markers

@@ -11,7 +11,7 @@ export default defineConfig({
       manifest: {
         name: 'BeamQR — Offline Transfer',
         short_name: 'BeamQR',
-        description: 'Transfer text and files device-to-device using only QR codes.',
+        description: 'Transfer text and files directly using animated QR codes or peer-to-peer Wi-Fi.',
         theme_color: '#080b0f',
         background_color: '#080b0f',
         display: 'standalone',
