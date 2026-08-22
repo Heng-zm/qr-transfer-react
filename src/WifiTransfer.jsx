@@ -100,6 +100,14 @@ function WifiIcon({ name, size = 22 }) {
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
+function formatEta(bytes, total, speed) {
+  if (!speed || !total || bytes >= total) return bytes >= total && total ? 'Done' : '—'
+  const seconds = Math.max(1, Math.ceil((total - bytes) / speed))
+  if (seconds < 60) return `${seconds}s`
+  const minutes = Math.floor(seconds / 60)
+  return `${minutes}m ${seconds % 60}s`
+}
+
 function PairScanner({ onCode }) {
   const videoRef = useRef(null)
   const controlsRef = useRef(null)
@@ -139,12 +147,14 @@ export default function WifiTransfer({ active = true }) {
   const connectionRef = useRef(null)
   const payloadRef = useRef(null)
   const receiveRef = useRef(null)
+  const statsRef = useRef({ startedAt: 0, lastUpdate: 0 })
   const [role, setRole] = useState('send')
   const [file, setFile] = useState(null)
   const [stage, setStage] = useState('idle')
   const [pairCode, setPairCode] = useState('')
   const [status, setStatus] = useState('Ready')
   const [progress, setProgress] = useState(0)
+  const [transferStats, setTransferStats] = useState({ bytes: 0, total: 0, speed: 0 })
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
@@ -160,14 +170,16 @@ export default function WifiTransfer({ active = true }) {
     closeConnection()
     payloadRef.current = null
     receiveRef.current = null
-    setRole(nextRole); setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setResult(null); setError(''); setBusy(false)
+    statsRef.current = { startedAt: 0, lastUpdate: 0 }
+    setRole(nextRole); setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setTransferStats({ bytes: 0, total: 0, speed: 0 }); setResult(null); setError(''); setBusy(false)
   }
 
   useEffect(() => () => closeConnection(), [])
   useEffect(() => {
     if (!active) {
       closeConnection()
-      setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setResult(null); setError('')
+      statsRef.current = { startedAt: 0, lastUpdate: 0 }
+      setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setTransferStats({ bytes: 0, total: 0, speed: 0 }); setResult(null); setError('')
     }
   }, [active])
 
@@ -177,19 +189,36 @@ export default function WifiTransfer({ active = true }) {
     setStage('failed')
   }
 
+  function startTransferStats(total) {
+    const now = performance.now()
+    statsRef.current = { startedAt: now, lastUpdate: now }
+    setProgress(0)
+    setTransferStats({ bytes: 0, total, speed: 0 })
+  }
+
+  function updateTransferStats(bytes, total, force = false) {
+    const now = performance.now()
+    if (!force && now - statsRef.current.lastUpdate < 140) return
+    const elapsed = Math.max(.001, (now - statsRef.current.startedAt) / 1000)
+    statsRef.current.lastUpdate = now
+    setProgress(total ? Math.round(bytes / total * 100) : 100)
+    setTransferStats({ bytes, total, speed: bytes / elapsed })
+  }
+
   async function sendPayload(connection) {
     const payload = payloadRef.current
     if (!payload) return
-    setStage('sending'); setStatus('Sending over Wi-Fi…'); setProgress(0)
+    setStage('sending'); setStatus('Sending over Wi-Fi…'); startTransferStats(payload.bytes.length)
     sendWhenOpen(connection, { t: 'meta', name: payload.name, mime: payload.mime, size: payload.bytes.length, hash: payload.hash })
     for (let offset = 0; offset < payload.bytes.length; offset += CHUNK_SIZE) {
       await waitForSendBuffer(connection)
       sendWhenOpen(connection, payload.bytes.slice(offset, offset + CHUNK_SIZE))
-      setProgress(Math.round(Math.min(payload.bytes.length, offset + CHUNK_SIZE) / payload.bytes.length * 100))
+      updateTransferStats(Math.min(payload.bytes.length, offset + CHUNK_SIZE), payload.bytes.length)
     }
     await waitForSendBuffer(connection)
     sendWhenOpen(connection, { t: 'done' })
-    setStage('complete'); setStatus('Sent successfully'); setProgress(100)
+    updateTransferStats(payload.bytes.length, payload.bytes.length, true)
+    setStage('complete'); setStatus('Sent successfully')
   }
 
   function prepareSenderConnection(connection, secret) {
@@ -233,14 +262,15 @@ export default function WifiTransfer({ active = true }) {
       if (data.t === 'meta') {
         if (!Number.isSafeInteger(data.size) || data.size < 0) throw new Error('The incoming file size is invalid.')
         receiveRef.current = { ...data, chunks: [], received: 0 }
-        setStage('receiving'); setStatus(`Receiving ${data.name}`); setProgress(0)
+        setStage('receiving'); setStatus(`Receiving ${data.name}`); startTransferStats(data.size)
       } else if (data.t === 'done' && receiveRef.current) {
         const incoming = receiveRef.current
         const bytes = new Uint8Array(incoming.received)
         let offset = 0
         for (const chunk of incoming.chunks) { bytes.set(chunk, offset); offset += chunk.length }
         if (bytes.length !== incoming.size || await checksum(bytes) !== incoming.hash) throw new Error('File verification failed.')
-        setResult({ name: incoming.name, mime: incoming.mime, bytes }); setStage('complete'); setStatus('Received successfully'); setProgress(100)
+        updateTransferStats(incoming.received, incoming.size, true)
+        setResult({ name: incoming.name, mime: incoming.mime, bytes }); setStage('complete'); setStatus('Received successfully')
       }
       return
     }
@@ -249,7 +279,7 @@ export default function WifiTransfer({ active = true }) {
     if (!incoming || !chunk) return
     incoming.chunks.push(chunk); incoming.received += chunk.length
     if (incoming.received > incoming.size) throw new Error('Received more data than expected.')
-    setProgress(incoming.size ? Math.round(incoming.received / incoming.size * 100) : 100)
+    updateTransferStats(incoming.received, incoming.size)
   }
 
   function joinTransfer(value) {
@@ -291,9 +321,9 @@ export default function WifiTransfer({ active = true }) {
       {stage === 'idle' && role === 'send' && <div className="wifi-action-view"><label className={`drop-zone wifi-file ${file ? 'has-file' : ''}`}><input type="file" onChange={(event) => { setFile(event.target.files?.[0] || null); setError('') }} /><span className="wifi-action-icon"><WifiIcon name="file" size={27} /></span><strong>{file ? file.name : 'Choose a file to send'}</strong><small>{file ? `${formatBytes(file.size)} · Tap to replace` : 'No fixed size cap · same Wi-Fi'}</small><em>{file ? 'Ready to pair' : 'Browse device'}</em></label><button className="primary-button full wifi-cta" disabled={!file || busy} onClick={createTransfer}>{busy ? <><span className="spinner" /> Preparing secure link</> : <><WifiIcon name="link" /> Create transfer code</>}</button></div>}
       {stage === 'idle' && role === 'receive' && <div className="wifi-receive-ready"><span className="wifi-radar"><WifiIcon name="scan" size={30} /></span><div><strong>Scan once. Receive directly.</strong><small>The sender keeps their QR open while you connect.</small></div><button className="primary-button full wifi-cta" onClick={() => { setStage('scan-sender'); setStatus('Scan the sender code') }}><WifiIcon name="scan" /> Open camera</button></div>}
 
-      {stage === 'waiting' && <div className="wifi-pair-code"><div className="wifi-state-heading"><span className="wifi-live-dot" /><div><strong>{status}</strong><small>Keep this screen open—your camera is not needed.</small></div></div><div className="wifi-qr-shell"><QRCodeView value={pairCode} size={340} /></div><div className="wifi-scan-once"><WifiIcon name="receive" size={18} /><span>Receiver scans once</span></div></div>}
+      {stage === 'waiting' && <div className="wifi-pair-code"><div className="wifi-state-heading"><span className="wifi-live-dot" /><div><strong>{status}</strong><small>Keep this screen open—your camera is not needed.</small></div></div>{file && <div className="wifi-pair-file"><WifiIcon name="file" size={18} /><span><strong>{file.name}</strong><small>{formatBytes(file.size)}</small></span></div>}<div className="wifi-qr-shell"><QRCodeView value={pairCode} size={340} /></div><div className="wifi-scan-once"><WifiIcon name="receive" size={18} /><span>Receiver scans once</span></div></div>}
       {stage === 'scan-sender' && <PairScanner onCode={joinTransfer} />}
-      {(stage === 'connecting' || stage === 'sending' || stage === 'receiving' || stage === 'complete') && <div className={`wifi-progress ${stage === 'complete' ? 'is-complete' : ''}`}><div className="wifi-progress-icon">{stage === 'complete' ? <WifiIcon name="check" /> : <span className="wifi-live-dot" />}</div><div className="wifi-progress-copy"><strong>{status}</strong><small>{stage === 'connecting' ? 'Finding the fastest direct route' : stage === 'complete' ? 'Integrity check passed' : 'Keep both devices on this screen'}</small></div><span>{progress}%</span><div className="progress-track"><div className="progress-fill" style={{ width: `${progress}%` }} /></div></div>}
+      {(stage === 'connecting' || stage === 'sending' || stage === 'receiving' || stage === 'complete') && <div className={`wifi-progress ${stage === 'complete' ? 'is-complete' : ''}`}><div className="wifi-progress-icon">{stage === 'complete' ? <WifiIcon name="check" /> : <span className="wifi-live-dot" />}</div><div className="wifi-progress-copy"><strong>{status}</strong><small>{stage === 'connecting' ? 'Finding the fastest direct route' : stage === 'complete' ? 'Integrity check passed' : 'Keep both devices on this screen'}</small></div><span>{progress}%</span><div className="progress-track"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>{transferStats.total > 0 && <div className="wifi-transfer-metrics"><div><small>Transferred</small><strong>{formatBytes(transferStats.bytes)} <i>/ {formatBytes(transferStats.total)}</i></strong></div><div><small>Speed</small><strong>{transferStats.speed ? `${formatBytes(transferStats.speed)}/s` : 'Starting…'}</strong></div><div><small>Time left</small><strong>{formatEta(transferStats.bytes, transferStats.total, transferStats.speed)}</strong></div></div>}</div>}
       {result && <button className="primary-button full wifi-cta" onClick={saveResult}><WifiIcon name="download" /> Save {result.name}</button>}
       {error && <div className="error-box" role="alert">{error}</div>}
       <div className="wifi-trust-row"><span><i /> One receiver scan</span><span><i /> Direct file data</span><span><i /> SHA-256 verified</span></div>
