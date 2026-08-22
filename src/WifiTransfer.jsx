@@ -44,15 +44,28 @@ function createLocalPeer() {
 
 function peerErrorMessage(error) {
   if (error?.type === 'peer-unavailable') return 'The sender is no longer waiting. Create a new pairing code.'
+  if (error?.type === 'not-open-yet' || error?.message?.includes('Connection is not open')) {
+    return 'The Wi-Fi connection closed before the transfer finished. Keep both devices open and try again.'
+  }
   if (error?.type === 'network' || error?.type === 'server-error' || error?.type === 'socket-error') {
     return 'Automatic pairing is unavailable. Check internet access on both devices and try again.'
   }
   return error?.message || 'Could not connect the devices.'
 }
 
+function connectionIsOpen(connection) {
+  return Boolean(connection?.open && connection.dataChannel?.readyState === 'open')
+}
+
+function sendWhenOpen(connection, data) {
+  if (!connectionIsOpen(connection)) throw new Error('The Wi-Fi connection closed before the transfer finished.')
+  connection.send(data)
+}
+
 async function waitForSendBuffer(connection) {
   const channel = connection.dataChannel
-  if (!channel || channel.bufferedAmount <= HIGH_WATER_MARK) return
+  if (!connectionIsOpen(connection)) throw new Error('The Wi-Fi connection closed before the transfer finished.')
+  if (channel.bufferedAmount <= HIGH_WATER_MARK) return
   channel.bufferedAmountLowThreshold = LOW_WATER_MARK
   await new Promise((resolve) => {
     const timeout = setTimeout(done, 2500)
@@ -63,6 +76,7 @@ async function waitForSendBuffer(connection) {
     }
     channel.addEventListener('bufferedamountlow', done, { once: true })
   })
+  if (!connectionIsOpen(connection)) throw new Error('The Wi-Fi connection closed before the transfer finished.')
 }
 
 async function toBytes(data) {
@@ -154,14 +168,14 @@ export default function WifiTransfer({ active = true }) {
     const payload = payloadRef.current
     if (!payload) return
     setStage('sending'); setStatus('Sending over Wi-Fi…'); setProgress(0)
-    connection.send({ t: 'meta', name: payload.name, mime: payload.mime, size: payload.bytes.length, hash: payload.hash })
+    sendWhenOpen(connection, { t: 'meta', name: payload.name, mime: payload.mime, size: payload.bytes.length, hash: payload.hash })
     for (let offset = 0; offset < payload.bytes.length; offset += CHUNK_SIZE) {
       await waitForSendBuffer(connection)
-      connection.send(payload.bytes.slice(offset, offset + CHUNK_SIZE))
+      sendWhenOpen(connection, payload.bytes.slice(offset, offset + CHUNK_SIZE))
       setProgress(Math.round(Math.min(payload.bytes.length, offset + CHUNK_SIZE) / payload.bytes.length * 100))
     }
     await waitForSendBuffer(connection)
-    connection.send({ t: 'done' })
+    sendWhenOpen(connection, { t: 'done' })
     setStage('complete'); setStatus('Sent successfully'); setProgress(100)
   }
 
@@ -171,7 +185,9 @@ export default function WifiTransfer({ active = true }) {
       return
     }
     connectionRef.current = connection
-    connection.on('open', () => sendPayload(connection).catch(handleConnectionFailure))
+    connection.on('open', () => sendPayload(connection).catch((cause) => {
+      if (connectionRef.current === connection) handleConnectionFailure(cause)
+    }))
     connection.on('error', handleConnectionFailure)
   }
 
