@@ -96,6 +96,7 @@ function WifiIcon({ name, size = 22 }) {
     image: <><rect x="3" y="4" width="18" height="16" rx="2" /><circle cx="8.5" cy="9" r="1.5" /><path d="m4 17 4.5-4 3.5 3 2.5-2 5.5 4" /></>,
     link: <><path d="M8.5 15.5 6 18a3.5 3.5 0 0 1-5-5l3-3a3.5 3.5 0 0 1 5 0" transform="translate(3)" /><path d="m15.5 8.5 2.5-2.5a3.5 3.5 0 0 1 5 5l-3 3a3.5 3.5 0 0 1-5 0" transform="translate(-3)" /><path d="m9 15 6-6" /></>,
     check: <path d="m5 12 4 4L19 6" />,
+    copy: <><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" /></>,
     download: <><path d="M12 3v12" /><path d="m7 10 5 5 5-5" /><path d="M5 21h14" /></>,
   }
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
@@ -149,6 +150,7 @@ export default function WifiTransfer({ active = true }) {
   const payloadRef = useRef(null)
   const receiveRef = useRef(null)
   const statsRef = useRef({ startedAt: 0, lastUpdate: 0 })
+  const pairCardRef = useRef(null)
   const [role, setRole] = useState('send')
   const [file, setFile] = useState(null)
   const [stage, setStage] = useState('idle')
@@ -160,6 +162,8 @@ export default function WifiTransfer({ active = true }) {
   const [error, setError] = useState('')
   const [busy, setBusy] = useState(false)
   const [importingPair, setImportingPair] = useState(false)
+  const [pairDragging, setPairDragging] = useState(false)
+  const [pairCopied, setPairCopied] = useState(false)
 
   function closeConnection() {
     try { connectionRef.current?.close() } catch {}
@@ -173,7 +177,7 @@ export default function WifiTransfer({ active = true }) {
     payloadRef.current = null
     receiveRef.current = null
     statsRef.current = { startedAt: 0, lastUpdate: 0 }
-    setRole(nextRole); setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setTransferStats({ bytes: 0, total: 0, speed: 0 }); setResult(null); setError(''); setBusy(false); setImportingPair(false)
+    setRole(nextRole); setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setTransferStats({ bytes: 0, total: 0, speed: 0 }); setResult(null); setError(''); setBusy(false); setImportingPair(false); setPairDragging(false); setPairCopied(false)
   }
 
   useEffect(() => () => closeConnection(), [])
@@ -181,7 +185,7 @@ export default function WifiTransfer({ active = true }) {
     if (!active) {
       closeConnection()
       statsRef.current = { startedAt: 0, lastUpdate: 0 }
-      setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setTransferStats({ bytes: 0, total: 0, speed: 0 }); setResult(null); setError(''); setImportingPair(false)
+      setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setTransferStats({ bytes: 0, total: 0, speed: 0 }); setResult(null); setError(''); setImportingPair(false); setPairDragging(false); setPairCopied(false)
     }
   }, [active])
 
@@ -304,9 +308,7 @@ export default function WifiTransfer({ active = true }) {
     }
   }
 
-  async function importPairImage(event) {
-    const selected = event.target.files?.[0]
-    event.target.value = ''
+  async function decodePairImage(selected) {
     if (!selected || importingPair) return
     if (!selected.type.startsWith('image/')) { setError('Choose a QR screenshot or image.'); return }
     if (selected.size > 25 * 1024 * 1024) { setError('Choose a QR image under 25 MB.'); return }
@@ -326,6 +328,38 @@ export default function WifiTransfer({ active = true }) {
     }
   }
 
+  function importPairImage(event) {
+    const selected = event.target.files?.[0]
+    event.target.value = ''
+    decodePairImage(selected)
+  }
+
+  function dropPairImage(event) {
+    event.preventDefault()
+    setPairDragging(false)
+    decodePairImage(event.dataTransfer.files?.[0])
+  }
+
+  function savePairQr() {
+    const canvas = pairCardRef.current?.querySelector('canvas')
+    if (!canvas) { setError('The pairing QR is still rendering. Try again.'); return }
+    canvas.toBlob((blob) => {
+      if (!blob) { setError('Could not save the pairing QR.'); return }
+      const url = URL.createObjectURL(blob)
+      const anchor = document.createElement('a')
+      anchor.href = url; anchor.download = 'beamqr-wifi-pair.png'; anchor.click()
+      setTimeout(() => URL.revokeObjectURL(url), 1000)
+    }, 'image/png')
+  }
+
+  async function copyPairCode() {
+    try {
+      await navigator.clipboard.writeText(pairCode)
+      setPairCopied(true)
+      setTimeout(() => setPairCopied(false), 1800)
+    } catch { setError('Clipboard access was blocked. Save the QR image instead.') }
+  }
+
   function saveResult() {
     if (!result) return
     const url = URL.createObjectURL(new Blob([result.bytes], { type: result.mime }))
@@ -343,9 +377,9 @@ export default function WifiTransfer({ active = true }) {
       </div>
 
       {stage === 'idle' && role === 'send' && <div className="wifi-action-view"><label className={`drop-zone wifi-file ${file ? 'has-file' : ''}`}><input type="file" onChange={(event) => { setFile(event.target.files?.[0] || null); setError('') }} /><span className="wifi-action-icon"><WifiIcon name="file" size={27} /></span><strong>{file ? file.name : 'Choose a file to send'}</strong><small>{file ? `${formatBytes(file.size)} · Tap to replace` : 'No fixed size cap · same Wi-Fi'}</small><em>{file ? 'Ready to pair' : 'Browse device'}</em></label><button className="primary-button full wifi-cta" disabled={!file || busy} onClick={createTransfer}>{busy ? <><span className="spinner" /> Preparing secure link</> : <><WifiIcon name="link" /> Create transfer code</>}</button></div>}
-      {stage === 'idle' && role === 'receive' && <div className="wifi-receive-ready"><span className="wifi-radar"><WifiIcon name="scan" size={30} /></span><div><strong>Scan once. Receive directly.</strong><small>Use the camera or choose a saved sender QR.</small></div><div className="wifi-receive-actions"><button className="primary-button wifi-cta" disabled={importingPair} onClick={() => { setStage('scan-sender'); setStatus('Scan the sender code') }}><WifiIcon name="scan" /> Open camera</button><label className={`secondary-button wifi-cta wifi-upload-button ${importingPair ? 'is-loading' : ''}`}><input type="file" accept="image/*" disabled={importingPair} onChange={importPairImage} />{importingPair ? <><span className="spinner" /> Reading QR</> : <><WifiIcon name="image" /> Upload QR</>}</label></div></div>}
+      {stage === 'idle' && role === 'receive' && <div className={`wifi-receive-ready ${pairDragging ? 'is-dragging' : ''}`} onDragEnter={(event) => { event.preventDefault(); setPairDragging(true) }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setPairDragging(false) }} onDrop={dropPairImage}><span className="wifi-radar"><WifiIcon name="scan" size={30} /></span><div><strong>Scan once. Receive directly.</strong><small>Use the camera, upload, or drop a saved sender QR.</small></div><div className="wifi-receive-actions"><button className="primary-button wifi-cta" disabled={importingPair} onClick={() => { setStage('scan-sender'); setStatus('Scan the sender code') }}><WifiIcon name="scan" /> Open camera</button><label className={`secondary-button wifi-cta wifi-upload-button ${importingPair ? 'is-loading' : ''}`}><input type="file" accept="image/*" disabled={importingPair} onChange={importPairImage} />{importingPair ? <><span className="spinner" /> Reading QR</> : <><WifiIcon name="image" /> Upload QR</>}</label></div></div>}
 
-      {stage === 'waiting' && <div className="wifi-pair-code"><div className="wifi-state-heading"><span className="wifi-live-dot" /><div><strong>{status}</strong><small>Keep this screen open—your camera is not needed.</small></div></div>{file && <div className="wifi-pair-file"><WifiIcon name="file" size={18} /><span><strong>{file.name}</strong><small>{formatBytes(file.size)}</small></span></div>}<div className="wifi-qr-shell"><QRCodeView value={pairCode} size={340} /></div><div className="wifi-scan-once"><WifiIcon name="receive" size={18} /><span>Receiver scans once</span></div></div>}
+      {stage === 'waiting' && <div className="wifi-pair-code" ref={pairCardRef}><div className="wifi-state-heading"><span className="wifi-live-dot" /><div><strong>{status}</strong><small>Keep this screen open—your camera is not needed.</small></div></div>{file && <div className="wifi-pair-file"><WifiIcon name="file" size={18} /><span><strong>{file.name}</strong><small>{formatBytes(file.size)}</small></span></div>}<div className="wifi-qr-shell"><QRCodeView value={pairCode} size={340} /></div><div className="wifi-scan-once"><WifiIcon name="receive" size={18} /><span>Receiver scans once</span></div><div className="wifi-pair-actions"><button className="secondary-button" onClick={savePairQr}><WifiIcon name="download" size={17} /> Save QR</button><button className="secondary-button" onClick={copyPairCode}><WifiIcon name={pairCopied ? 'check' : 'copy'} size={17} /> {pairCopied ? 'Copied' : 'Copy code'}</button></div></div>}
       {stage === 'scan-sender' && <PairScanner onCode={joinTransfer} />}
       {(stage === 'connecting' || stage === 'sending' || stage === 'receiving' || stage === 'complete') && <div className={`wifi-progress ${stage === 'complete' ? 'is-complete' : ''}`}><div className="wifi-progress-icon">{stage === 'complete' ? <WifiIcon name="check" /> : <span className="wifi-live-dot" />}</div><div className="wifi-progress-copy"><strong>{status}</strong><small>{stage === 'connecting' ? 'Finding the fastest direct route' : stage === 'complete' ? 'Integrity check passed' : 'Keep both devices on this screen'}</small></div><span>{progress}%</span><div className="progress-track"><div className="progress-fill" style={{ width: `${progress}%` }} /></div>{transferStats.total > 0 && <div className="wifi-transfer-metrics"><div><small>Transferred</small><strong>{formatBytes(transferStats.bytes)} <i>/ {formatBytes(transferStats.total)}</i></strong></div><div><small>Speed</small><strong>{transferStats.speed ? `${formatBytes(transferStats.speed)}/s` : 'Starting…'}</strong></div><div><small>Time left</small><strong>{formatEta(transferStats.bytes, transferStats.total, transferStats.speed)}</strong></div></div>}</div>}
       {result && <button className="primary-button full wifi-cta" onClick={saveResult}><WifiIcon name="download" /> Save {result.name}</button>}

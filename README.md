@@ -16,6 +16,7 @@ A React/Vite app that transfers text and files by showing animated QR codes on t
 - Multi-image QR screenshot importing as an alternative to live camera scanning
 - Same-Wi-Fi WebRTC file transfer with one receiver scan
 - Wi-Fi pairing from the camera or an uploaded QR screenshot
+- Sender QR saving/copying and receiver drag-and-drop pairing
 - Live Wi-Fi transfer speed, byte progress, and time remaining
 - Copy feedback, offline file download, and clear integrity status
 

@@ -205,7 +205,9 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .wifi-file strong { max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .wifi-file em { margin-top: 7px; padding: 6px 10px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 11%, var(--surface-2)); color: var(--accent-strong); font-size: .65rem; font-style: normal; font-weight: 800; }
 .wifi-cta { min-height: 52px; border-radius: 15px; }
-.wifi-receive-ready { display: grid; place-items: center; gap: 10px; padding: 30px 22px 22px; border: 1px solid var(--border); border-radius: 20px; background: radial-gradient(circle at 50% 24%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 36%), var(--surface-3); text-align: center; animation: reveal-up .4s var(--motion-smooth) both; }
+.wifi-receive-ready { position: relative; overflow: hidden; display: grid; place-items: center; gap: 10px; padding: 30px 22px 22px; border: 1px solid var(--border); border-radius: 20px; background: radial-gradient(circle at 50% 24%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 36%), var(--surface-3); text-align: center; animation: reveal-up .4s var(--motion-smooth) both; }
+.wifi-receive-ready.is-dragging { border-color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 9%, var(--surface-3)); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
+.wifi-receive-ready.is-dragging::after { content: 'Drop QR image'; position: absolute; z-index: 4; display: grid; place-items: center; inset: 0; border-radius: inherit; background: color-mix(in srgb, var(--surface-3) 88%, transparent); color: var(--accent-strong); font-size: .85rem; font-weight: 850; pointer-events: none; backdrop-filter: blur(8px); }
 .wifi-receive-ready > div { display: grid; gap: 5px; }
 .wifi-receive-ready small { color: var(--muted); font-size: .76rem; }
 .wifi-receive-actions { width: 100%; grid-template-columns: 1fr 1fr; gap: 9px !important; margin-top: 8px; }
@@ -225,6 +227,8 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .wifi-qr-shell { width: min(100%, 400px); padding: 10px; border-radius: 27px; background: linear-gradient(145deg, #fff, #f2f7ed); box-shadow: 0 22px 55px rgba(0,0,0,.18); }
 .wifi-pair-code .qr-code-frame { width: 100%; box-shadow: none; }
 .wifi-scan-once { display: flex; align-items: center; gap: 8px; color: var(--accent-strong); font-size: .74rem; font-weight: 800; }
+.wifi-pair-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.wifi-pair-actions button { min-height: 42px; }
 .wifi-scanner { position: relative; overflow: hidden; min-height: clamp(390px, 62vh, 620px); border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border)); border-radius: 21px; background: #050706; box-shadow: 0 20px 50px rgba(0,0,0,.2); animation: reveal-up .38s var(--motion-smooth) both; }
 .wifi-scanner video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
 .wifi-scanner .error-box { position: absolute; left: 14px; right: 14px; bottom: 14px; }
@@ -292,7 +296,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.975) !important
   .split-controls, .sender-actions { align-items: stretch; } .sender-actions { flex-direction: column-reverse; } .awake-badge { justify-content: center; }
   .receive-metrics { display: block; } .receive-metrics small:last-child { text-align: left; }
   .wifi-panel { padding: 18px; } .wifi-heading p { max-width: 230px; } .wifi-role-switch button { min-height: 60px; padding: 9px 10px; } .wifi-role-switch button small { display: none; }
-  .wifi-file { min-height: 190px; } .wifi-receive-actions { grid-template-columns: 1fr; } .wifi-pair-code { padding: 15px; } .wifi-qr-shell { padding: 6px; border-radius: 22px; } .wifi-state-heading small { max-width: 240px; }
+  .wifi-file { min-height: 190px; } .wifi-receive-actions { grid-template-columns: 1fr; } .wifi-pair-code { padding: 15px; } .wifi-qr-shell { padding: 6px; border-radius: 22px; } .wifi-state-heading small { max-width: 240px; } .wifi-pair-actions { grid-template-columns: 1fr; }
   .wifi-scanner { min-height: 68vh; } .wifi-progress { padding: 16px; } .wifi-transfer-metrics { grid-template-columns: 1.4fr 1fr; } .wifi-transfer-metrics > div:last-child { grid-column: 1 / -1; } .wifi-trust-row { gap: 7px 11px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; } body::before { display: none; } }
