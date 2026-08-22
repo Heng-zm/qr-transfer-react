@@ -188,41 +188,43 @@ export default function Receiver({ active = true }) {
     return frame.ft === 'p' ? 'recovery' : 'added'
   }
 
-  async function startNativeDetection(session) {
-    if (!window.BarcodeDetector) return
+  async function createNativeDetector(session) {
+    if (!window.BarcodeDetector) return null
     try {
       const supported = await window.BarcodeDetector.getSupportedFormats()
-      if (session !== scanSessionRef.current || !supported.includes('qr_code')) return
-      const detector = new window.BarcodeDetector({ formats: ['qr_code'] })
-      setNativeFastScan(true)
+      if (session !== scanSessionRef.current || !supported.includes('qr_code')) return null
+      return new window.BarcodeDetector({ formats: ['qr_code'] })
+    } catch { return null }
+  }
 
-      const schedule = (scan) => {
-        if (session === scanSessionRef.current) nativeScanFrameRef.current = requestAnimationFrame(scan)
-      }
-      const scan = async (timestamp) => {
-        const video = videoRef.current
-        if (session !== scanSessionRef.current) return
-        if (nativeScanBusyRef.current || timestamp - nativeLastScanAtRef.current < 55 || !video || video.readyState < 2) { schedule(scan); return }
-        nativeScanBusyRef.current = true
-        nativeLastScanAtRef.current = timestamp
-        try {
-          const detected = await detector.detect(video)
-          for (const barcode of detected) {
-            if (!barcode.rawValue) continue
-            const corners = barcode.cornerPoints?.length >= 4 ? barcode.cornerPoints : [
-              { x: barcode.boundingBox.left, y: barcode.boundingBox.top },
-              { x: barcode.boundingBox.right, y: barcode.boundingBox.top },
-              { x: barcode.boundingBox.right, y: barcode.boundingBox.bottom },
-              { x: barcode.boundingBox.left, y: barcode.boundingBox.bottom },
-            ]
-            const adaptedResult = { getText: () => barcode.rawValue, getResultPoints: () => [corners[3], corners[0], corners[1]] }
-            await processDecodedResult(adaptedResult, true)
-          }
-        } catch {}
-        finally { nativeScanBusyRef.current = false; schedule(scan) }
-      }
-      schedule(scan)
-    } catch { setNativeFastScan(false) }
+  function startNativeDetection(session, detector) {
+    setNativeFastScan(true)
+    const schedule = (scan) => {
+      if (session === scanSessionRef.current) nativeScanFrameRef.current = requestAnimationFrame(scan)
+    }
+    const scan = async (timestamp) => {
+      const video = videoRef.current
+      if (session !== scanSessionRef.current) return
+      if (nativeScanBusyRef.current || timestamp - nativeLastScanAtRef.current < 85 || !video || video.readyState < 2) { schedule(scan); return }
+      nativeScanBusyRef.current = true
+      nativeLastScanAtRef.current = timestamp
+      try {
+        const detected = await detector.detect(video)
+        for (const barcode of detected) {
+          if (!barcode.rawValue) continue
+          const corners = barcode.cornerPoints?.length >= 4 ? barcode.cornerPoints : [
+            { x: barcode.boundingBox.left, y: barcode.boundingBox.top },
+            { x: barcode.boundingBox.right, y: barcode.boundingBox.top },
+            { x: barcode.boundingBox.right, y: barcode.boundingBox.bottom },
+            { x: barcode.boundingBox.left, y: barcode.boundingBox.bottom },
+          ]
+          const adaptedResult = { getText: () => barcode.rawValue, getResultPoints: () => [corners[3], corners[0], corners[1]] }
+          await processDecodedResult(adaptedResult, true)
+        }
+      } catch {}
+      finally { nativeScanBusyRef.current = false; schedule(scan) }
+    }
+    schedule(scan)
   }
 
   async function startScanner(nextFacing = cameraFacing, preserveProgress = false) {
@@ -232,12 +234,30 @@ export default function Receiver({ active = true }) {
     setError(''); setStatus('Starting camera…')
     if (!window.isSecureContext) { setError('Camera access requires HTTPS or localhost. Install the PWA first for fully offline use on iPhone or iPad.'); setStatus('Camera unavailable'); return }
     if (!navigator.mediaDevices?.getUserMedia) { setError('Camera scanning is not supported by this browser.'); setStatus('Camera unavailable'); return }
+    let controls = null
     try {
-      const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 20 })
-      const controls = await reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } }, videoRef.current, async (scanResult) => {
-        if (session !== scanSessionRef.current || !scanResult || rebuildingRef.current) return
-        await processDecodedResult(scanResult, true)
-      })
+      const constraints = { audio: false, video: { facingMode: { ideal: nextFacing }, width: { ideal: 960, max: 1280 }, height: { ideal: 540, max: 720 }, frameRate: { ideal: 30, max: 30 } } }
+      const nativeDetector = await createNativeDetector(session)
+      if (session !== scanSessionRef.current) return
+      if (nativeDetector) {
+        const stream = await navigator.mediaDevices.getUserMedia(constraints)
+        const video = videoRef.current
+        controls = {
+          stop() {
+            stream.getTracks().forEach((track) => track.stop())
+            if (video?.srcObject === stream) video.srcObject = null
+          },
+        }
+        if (!video) throw new Error('Camera preview is unavailable.')
+        video.srcObject = stream
+        await video.play()
+      } else {
+        const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 35 })
+        controls = await reader.decodeFromConstraints(constraints, videoRef.current, async (scanResult) => {
+          if (session !== scanSessionRef.current || !scanResult || rebuildingRef.current) return
+          await processDecodedResult(scanResult, true)
+        })
+      }
       if (session !== scanSessionRef.current) { controls.stop(); return }
       controlsRef.current = controls
       const videoTrack = videoRef.current?.srcObject?.getVideoTracks?.()[0]
@@ -261,8 +281,9 @@ export default function Receiver({ active = true }) {
       } catch {}
       setTorchAvailable(supportsTorch)
       setScanning(true); setStatus(framesRef.current.size ? 'Receiving frames…' : 'Looking for BeamQR codes…')
-      startNativeDetection(session)
+      if (nativeDetector) startNativeDetection(session, nativeDetector)
     } catch (e) {
+      try { controls?.stop() } catch {}
       if (session !== scanSessionRef.current) return
       const cameraErrors = {
         NotAllowedError: 'Camera permission was denied. Allow access in your browser settings and try again.',
