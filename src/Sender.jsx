@@ -71,7 +71,8 @@ export default function Sender() {
 
   const inputBytes = mode === 'text' ? encoder.encode(text).length : (file?.size || 0)
   const hasContent = mode === 'text' ? inputBytes > 0 : Boolean(file)
-  const estimatedFrames = hasContent ? Math.max(1, Math.ceil((inputBytes * 1.38) / 650)) : 0
+  const estimatedDataFrames = hasContent ? Math.max(1, Math.ceil(inputBytes / 480)) : 0
+  const estimatedFrames = hasContent ? estimatedDataFrames + Math.ceil(estimatedDataFrames / 8) : 0
   const canPrepare = hasContent && inputBytes <= FILE_LIMIT
   const contentTooLarge = mode === 'text' && inputBytes > FILE_LIMIT
 
@@ -114,7 +115,7 @@ export default function Sender() {
         <div className="panel-heading"><div><div className="step-label">READY TO SEND</div><h2>Show this code to the receiver</h2><p>Keep both screens awake and facing each other.</p></div><button className="ghost-button compact" onClick={reset}><Icon name="close" size={17} /> New transfer</button></div>
         <div className="qr-stage" ref={qrStageRef}><div className="qr-glow" /><QRCodeView value={transfer.frames[frameIndex]} size={360} /><div className="frame-counter"><span className={playing ? 'live-dot' : ''} /> Frame {frameIndex + 1} of {transfer.frames.length}</div></div>
         <div className="timeline"><div className="progress-track" aria-label={`Frame ${frameIndex + 1} of ${transfer.frames.length}`}><div className="progress-fill" style={{ width: `${percent}%` }} /></div><div className="frame-controls"><button className="icon-button" onClick={() => stepFrame(-1)} aria-label="Previous frame"><Icon name="chevronLeft" /></button><button className="primary-button play-button" onClick={() => setPlaying((value) => !value)}><Icon name={playing ? 'pause' : 'play'} size={18} /> {playing ? 'Pause' : 'Play'}</button><button className="icon-button" onClick={() => stepFrame(1)} aria-label="Next frame"><Icon name="chevronRight" /></button></div></div>
-        <div className="transfer-summary"><div><span>Transfer</span><strong title={transfer.name}>{transfer.name}</strong></div><div><span>Size</span><strong>{formatBytes(transfer.originalBytes)}</strong></div><div><span>Compressed</span><strong>{savings ? `${savings}% smaller` : formatBytes(transfer.compressedBytes)}</strong></div><div><span>Frames</span><strong>{transfer.frames.length}</strong></div></div>
+        <div className="transfer-summary"><div><span>Transfer</span><strong title={transfer.name}>{transfer.name}</strong></div><div><span>Size</span><strong>{formatBytes(transfer.originalBytes)}</strong></div><div><span>QR frames</span><strong>{transfer.dataFrames} data + {transfer.recoveryFrames} recovery</strong></div><div><span>Compression</span><strong>{savings ? `${savings}% smaller` : formatBytes(transfer.compressedBytes)}</strong></div></div>
         <div className="control-row split-controls"><label className="select-control"><span>Scan speed</span><select value={speed} onChange={(event) => setSpeed(Number(event.target.value))}><option value={220}>Fast · 4.5 fps</option><option value={360}>Balanced · 2.8 fps</option><option value={520}>Easy · 1.9 fps</option><option value={750}>Slow · 1.3 fps</option></select></label><div className="sender-actions">{wakeActive && <span className="awake-badge"><Icon name="awake" size={15} /> Screen awake</span>}<button className="secondary-button" onClick={enterFullscreen}><Icon name="maximize" size={18} /> Fullscreen</button></div></div>
         {error && <div className="error-box" role="alert">{error}</div>}
       </section>

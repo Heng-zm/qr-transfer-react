@@ -8,6 +8,10 @@ A React/Vite app that transfers text and files by showing animated QR codes on t
 - Drag-and-drop file selection with live transfer estimates
 - Adjustable QR animation speed, frame stepping, and fullscreen display
 - Live camera scan progress and camera switching
+- XOR recovery frames that reconstruct one missing data frame per eight-frame group
+- Burst-resistant frame ordering that spreads related frames across the animation
+- Automatic camera calibration with a recommended sender speed
+- Multi-image QR screenshot importing as an alternative to live camera scanning
 - Copy feedback, offline file download, and clear integrity status
 
 ## What it does
@@ -21,6 +25,7 @@ A React/Vite app that transfers text and files by showing animated QR codes on t
 - Animated multi-frame QR protocol
 - Frames can arrive in any order
 - Duplicate frames are ignored
+- Missing frames can be rebuilt from parity data
 - Deflate compression
 - SHA-256 integrity verification
 - PWA caching for offline use after installation
@@ -60,12 +65,11 @@ For truly offline receiver use, install the app as a PWA while it is available o
 1. On Sender, choose Text or File.
 2. Press **Create QR transfer**.
 3. The sender displays animated QR frames.
-4. On Receiver, press **Start scanning**.
-5. Hold the receiver camera toward the sender screen.
+4. On Receiver, press **Start scanning**, or import saved QR screenshots.
+5. Hold the receiver camera toward the sender screen and follow the calibrated speed recommendation.
 6. The receiver collects unique frames until complete.
 7. Text can be copied; files can be saved.
 
 ## Practical limits
 
 QR transfer is optical, so large files take many frames. This build limits files to 2 MB, but QR is an optical channel, so files under about 200 KB are much more practical. Use the `Easy scan` speed on lower-quality cameras.
-# qr-transfer-react

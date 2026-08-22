@@ -113,6 +113,19 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; } .topbar p { margin
 .scan-frame span:nth-child(1) { left: 0; top: 0; border-width: 3px 0 0 3px; border-radius: 9px 0 0; } .scan-frame span:nth-child(2) { right: 0; top: 0; border-width: 3px 3px 0 0; border-radius: 0 9px 0 0; } .scan-frame span:nth-child(3) { left: 0; bottom: 0; border-width: 0 0 3px 3px; border-radius: 0 0 0 9px; } .scan-frame span:nth-child(4) { right: 0; bottom: 0; border-width: 0 3px 3px 0; border-radius: 0 0 9px; }
 .is-scanning .scan-frame i { position: absolute; left: 4%; right: 4%; height: 1px; top: 7%; background: var(--accent); box-shadow: 0 0 12px var(--accent); animation: scan 2.2s ease-in-out infinite alternate; } @keyframes scan { to { top: 92%; } }
 .receiver-controls { justify-content: center; }
+.import-button { position: relative; cursor: pointer; }
+.import-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+.import-button.is-loading { opacity: .6; cursor: wait; }
+.calibration-card { display: grid; grid-template-columns: 1fr minmax(100px, 1.2fr) 1.4fr; align-items: center; gap: 14px; margin-top: 14px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 14px; background: var(--surface-3); }
+.calibration-card > div:first-child { display: grid; gap: 3px; }
+.calibration-card span { color: var(--accent-strong); font-size: .62rem; font-weight: 850; letter-spacing: .12em; }
+.calibration-card strong { font-size: .78rem; }
+.calibration-card > div:last-child { display: flex; justify-content: flex-end; gap: 16px; }
+.calibration-card small { color: var(--faint); font-size: .68rem; }
+.calibration-card small strong { color: var(--accent-strong); }
+.quality-meter { height: 6px; overflow: hidden; border-radius: 99px; background: var(--border); }
+.quality-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffbe50, var(--accent)); transition: width .25s ease; }
+.import-summary { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 12px; color: var(--muted); font-size: .74rem; }
 .status-card, .result-card { margin-top: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 15px; background: var(--surface-3); }
 .status-line, .status-line > div { display: flex; justify-content: space-between; align-items: center; gap: 9px; } .status-line > div { justify-content: flex-start; }
 .status-indicator { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); } .status-indicator.active { background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent); animation: pulse 1.2s infinite; }
@@ -133,6 +146,8 @@ footer { display: flex; align-items: center; justify-content: center; gap: 7px; 
   .main-tabs small { display: none; } .main-tabs button { min-height: 56px; } .panel { border-radius: 19px; } .panel-heading { align-items: center; } .panel-heading p { max-width: 310px; }
   .prepare-row { align-items: stretch; flex-direction: column; } .prepare-row .primary-button { width: 100%; } .transfer-summary { grid-template-columns: 1.5fr 1fr; } .split-controls { align-items: flex-end; }
   .receiver-controls > button { flex: 1; } .camera-shell { aspect-ratio: 4/3; } .qr-stage { padding: 15px; }
+  .receiver-controls .import-button { flex: 1 0 100%; }
+  .calibration-card { grid-template-columns: 1fr; gap: 9px; } .calibration-card > div:last-child { justify-content: space-between; }
   .split-controls, .sender-actions { align-items: stretch; } .sender-actions { flex-direction: column-reverse; } .awake-badge { justify-content: center; }
   .receive-metrics { display: block; } .receive-metrics small:last-child { text-align: left; }
 }

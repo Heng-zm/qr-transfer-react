@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { BrowserQRCodeReader } from '@zxing/browser'
-import { formatBytes, parseFrame, rebuildTransfer } from './protocol.js'
+import { analyzeTransferFrames, formatBytes, frameKey, parseFrame, rebuildTransfer } from './protocol.js'
 
 const decoder = new TextDecoder()
 
@@ -14,6 +14,7 @@ function Icon({ name, size = 20 }) {
     reset: <><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></>,
     shield: <><path d="M20 13c0 5-3.5 7.5-8 9-4.5-1.5-8-4-8-9V5l8-3 8 3Z"/><path d="m9 12 2 2 4-4"/></>,
     flash: <path d="m13 2-9 12h8l-1 8 9-12h-8Z"/>,
+    image: <><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></>,
   }
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
@@ -33,9 +34,11 @@ export default function Receiver({ active = true }) {
   const videoTrackRef = useRef(null)
   const zoomCapabilityRef = useRef(null)
   const lastZoomAtRef = useRef(0)
+  const qualitySamplesRef = useRef([])
+  const cameraBaseScoreRef = useRef(0)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready when you are')
-  const [progress, setProgress] = useState({ received: 0, total: 0 })
+  const [progress, setProgress] = useState({ received: 0, total: 0, direct: 0, recovery: 0 })
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
   const [cameraFacing, setCameraFacing] = useState('environment')
@@ -45,6 +48,9 @@ export default function Receiver({ active = true }) {
   const [torchOn, setTorchOn] = useState(false)
   const [scanRate, setScanRate] = useState(0)
   const [autoZoom, setAutoZoom] = useState(0)
+  const [cameraQuality, setCameraQuality] = useState(null)
+  const [importing, setImporting] = useState(false)
+  const [importSummary, setImportSummary] = useState('')
 
   useEffect(() => () => {
     scanSessionRef.current += 1
@@ -58,7 +64,17 @@ export default function Receiver({ active = true }) {
   }, [active])
 
   function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setScanning(false) }
-  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0) }
+  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary('') }
+
+  function updateCalibration(confidence) {
+    const samples = [...qualitySamplesRef.current, confidence].slice(-12)
+    qualitySamplesRef.current = samples
+    const average = samples.reduce((sum, value) => sum + value, 0) / samples.length
+    const score = Math.round(cameraBaseScoreRef.current * .42 + average * .58)
+    const recommendation = score >= 84 ? 'Fast' : score >= 70 ? 'Balanced' : score >= 54 ? 'Easy' : 'Slow'
+    const label = samples.length < 3 ? 'Calibrating' : score >= 84 ? 'Excellent' : score >= 70 ? 'Good' : score >= 54 ? 'Fair' : 'Low light / unstable'
+    setCameraQuality({ score, recommendation, label, ready: samples.length >= 3 })
+  }
 
   function zoomToQr(points, video) {
     const track = videoTrackRef.current
@@ -121,9 +137,45 @@ export default function Receiver({ active = true }) {
     const label = valid ? (confidence >= 85 ? 'HIGH CONFIDENCE' : confidence >= 68 ? 'LOCKED' : 'ACQUIRING') : 'OTHER QR'
 
     trackingHistoryRef.current = { points: smoothed, width, height, valid, hits }
+    if (valid) updateCalibration(confidence)
     setTracking({ points: smoothed.map(({ x, y }) => `${x},${y}`).join(' '), width, height, valid, confidence, label })
     clearTimeout(trackingTimerRef.current)
     trackingTimerRef.current = setTimeout(() => { trackingHistoryRef.current = null; setTracking(null) }, 680)
+  }
+
+  async function processDecodedResult(scanResult, showTracking = false) {
+    if (!scanResult || rebuildingRef.current) return 'ignored'
+    const frame = parseFrame(scanResult.getText())
+    const matchesTransfer = Boolean(frame && (!activeIdRef.current || frame.id === activeIdRef.current))
+    if (showTracking) trackResult(scanResult, matchesTransfer)
+    if (!frame) { setStatus('QR found, but it is not a BeamQR transfer'); return 'invalid' }
+    if (!matchesTransfer) { setStatus('Different transfer found — keep scanning the original'); return 'different' }
+    if (!activeIdRef.current) activeIdRef.current = frame.id
+
+    const key = frameKey(frame)
+    if (framesRef.current.has(key)) return 'duplicate'
+    framesRef.current.set(key, frame)
+    const transferStatus = analyzeTransferFrames(framesRef.current)
+    const now = performance.now()
+    if (!firstFrameAtRef.current) firstFrameAtRef.current = now
+    if (transferStatus.direct > 1) setScanRate((transferStatus.direct - 1) / Math.max(.25, (now - firstFrameAtRef.current) / 1000))
+    if (showTracking) navigator.vibrate?.(transferStatus.complete ? [35, 45, 70] : 16)
+    setProgress(transferStatus)
+    setStatus(transferStatus.recovery > 0 ? `Receiving frames… ${transferStatus.recovery} recovered` : 'Receiving frames…')
+
+    if (transferStatus.complete) {
+      rebuildingRef.current = true
+      setStatus(transferStatus.recovery > 0 ? 'Recovering and verifying…' : 'Verifying transfer…')
+      try {
+        const rebuilt = await rebuildTransfer(framesRef.current)
+        setResult(rebuilt); setStatus('Transfer complete'); stopScanner()
+        return 'complete'
+      } catch (error) {
+        setError(error?.message || 'Could not rebuild transfer.'); setStatus('Transfer failed'); rebuildingRef.current = false
+        return 'failed'
+      }
+    }
+    return frame.ft === 'p' ? 'recovery' : 'added'
   }
 
   async function startScanner(nextFacing = cameraFacing, preserveProgress = false) {
@@ -137,26 +189,7 @@ export default function Receiver({ active = true }) {
       const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 20 })
       const controls = await reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } }, videoRef.current, async (scanResult) => {
         if (session !== scanSessionRef.current || !scanResult || rebuildingRef.current) return
-        const frame = parseFrame(scanResult.getText())
-        const matchesTransfer = Boolean(frame && (!activeIdRef.current || frame.id === activeIdRef.current))
-        trackResult(scanResult, matchesTransfer)
-        if (!frame) { setStatus('QR found, but it is not a BeamQR transfer'); return }
-        if (activeIdRef.current && frame.id !== activeIdRef.current) { setStatus('Different transfer found — keep scanning the original'); return }
-        if (!activeIdRef.current) activeIdRef.current = frame.id
-        if (!framesRef.current.has(frame.i)) {
-          framesRef.current.set(frame.i, frame)
-          const received = framesRef.current.size
-          const now = performance.now()
-          if (!firstFrameAtRef.current) firstFrameAtRef.current = now
-          if (received > 1) setScanRate((received - 1) / Math.max(.25, (now - firstFrameAtRef.current) / 1000))
-          navigator.vibrate?.(received === frame.n ? [35, 45, 70] : 16)
-          setProgress({ received, total: frame.n }); setStatus('Receiving frames…')
-          if (received === frame.n) {
-            rebuildingRef.current = true; setStatus('Verifying transfer…')
-            try { const rebuilt = await rebuildTransfer(framesRef.current); setResult(rebuilt); setStatus('Transfer complete'); stopScanner() }
-            catch (e) { setError(e?.message || 'Could not rebuild transfer.'); setStatus('Transfer failed'); rebuildingRef.current = false }
-          }
-        }
+        await processDecodedResult(scanResult, true)
       })
       if (session !== scanSessionRef.current) { controls.stop(); return }
       controlsRef.current = controls
@@ -165,6 +198,12 @@ export default function Receiver({ active = true }) {
       let supportsTorch = false
       try {
         const capabilities = videoTrack?.getCapabilities?.() || {}
+        const settings = videoTrack?.getSettings?.() || {}
+        const pixels = (settings.width || 0) * (settings.height || 0)
+        const resolutionScore = pixels >= 1920 * 1080 ? 95 : pixels >= 1280 * 720 ? 82 : pixels >= 640 * 480 ? 62 : 42
+        const frameRateScore = settings.frameRate >= 28 ? 92 : settings.frameRate >= 20 ? 72 : 50
+        cameraBaseScoreRef.current = Math.round(resolutionScore * .62 + frameRateScore * .38)
+        setCameraQuality({ score: cameraBaseScoreRef.current, recommendation: 'Easy', label: 'Point at QR to calibrate', ready: false })
         supportsTorch = Boolean(capabilities.torch)
         zoomCapabilityRef.current = Number.isFinite(capabilities.zoom?.max) && capabilities.zoom.max > capabilities.zoom.min ? capabilities.zoom : null
         const cameraTuning = {}
@@ -196,6 +235,36 @@ export default function Receiver({ active = true }) {
     try { await track.applyConstraints({ advanced: [{ torch: next }] }); setTorchOn(next) }
     catch { setTorchAvailable(false); setError('Torch control is not available for this camera.') }
   }
+  async function importScreenshots(event) {
+    const selected = [...(event.target.files || [])]
+    event.target.value = ''
+    if (!selected.length) return
+    if (selected.length > 250) { setError('Import up to 250 QR screenshots at a time.'); return }
+
+    stopScanner()
+    if (!framesRef.current.size) resetTransfer()
+    setImporting(true); setError(''); setImportSummary('Reading QR images…')
+    const reader = new BrowserQRCodeReader()
+    const counts = { added: 0, recovery: 0, duplicate: 0, invalid: 0, different: 0 }
+    let completed = false
+
+    for (const file of selected) {
+      if (!file.type.startsWith('image/')) { counts.invalid += 1; continue }
+      const url = URL.createObjectURL(file)
+      try {
+        const decoded = await reader.decodeFromImageUrl(url)
+        const outcome = await processDecodedResult(decoded, false)
+        if (outcome in counts) counts[outcome] += 1
+        if (outcome === 'complete') { completed = true; break }
+      } catch { counts.invalid += 1 }
+      finally { URL.revokeObjectURL(url) }
+    }
+
+    const accepted = counts.added + counts.recovery
+    setImportSummary(`${accepted} new · ${counts.duplicate} duplicate · ${counts.invalid + counts.different} skipped`)
+    if (!completed) setStatus(accepted ? 'Screenshots imported — add more or continue scanning' : 'No new BeamQR frames found')
+    setImporting(false)
+  }
   function saveResult() { if (!result) return; const blob = new Blob([result.bytes], { type: result.mime || 'application/octet-stream' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = result.name || 'received-file'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(url), 60000) }
   async function copyText() {
     if (!result) return
@@ -213,13 +282,13 @@ export default function Receiver({ active = true }) {
   const frameMap = Array.from({ length: mapSize }, (_, index) => {
     const start = Math.floor(index * progress.total / mapSize)
     const end = Math.max(start + 1, Math.floor((index + 1) * progress.total / mapSize))
-    for (let frame = start; frame < end; frame += 1) if (!framesRef.current.has(frame)) return false
+    for (let frame = start; frame < end; frame += 1) if (!framesRef.current.has(`d:${frame}`)) return false
     return true
   })
 
   return (
     <section className="panel receiver-panel">
-      <div className="panel-heading"><div><div className="step-label">RECEIVE MODE</div><h2>{result ? 'Your transfer is ready' : 'Scan the sender screen'}</h2><p>{result ? 'Integrity checked. The content is safe to open.' : 'Center the animated QR code inside the frame.'}</p></div>{(progress.received > 0 || result) && <button className="ghost-button compact" onClick={() => { stopScanner(); resetTransfer() }}><Icon name="reset" size={17} /> Reset</button>}</div>
+      <div className="panel-heading"><div><div className="step-label">RECEIVE MODE</div><h2>{result ? 'Your transfer is ready' : 'Scan or import QR frames'}</h2><p>{result ? 'Integrity checked. The content is safe to open.' : 'Use the camera live, or import one or more QR screenshots.'}</p></div>{(progress.received > 0 || result) && <button className="ghost-button compact" onClick={() => { stopScanner(); resetTransfer() }}><Icon name="reset" size={17} /> Reset</button>}</div>
 
       {!result && (
         <div className={`camera-shell ${scanning ? 'is-scanning' : ''} ${tracking?.valid ? 'has-lock' : ''}`}>
@@ -238,9 +307,12 @@ export default function Receiver({ active = true }) {
         </div>
       )}
 
-      {!result && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}</div>}
+      {!result && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}<label className={`secondary-button import-button ${importing ? 'is-loading' : ''}`} aria-disabled={importing}><Icon name="image" size={18} /> {importing ? 'Reading…' : 'Import QR images'}<input type="file" accept="image/*" multiple disabled={importing} onChange={importScreenshots} /></label></div>}
 
-      {!result && <div className="status-card" aria-live="polite"><div className="status-line"><div><span className={`status-indicator ${scanning ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><div className="frame-map" aria-label={`${progress.received} of ${progress.total} frames captured`}>{frameMap.map((captured, index) => <span className={captured ? 'captured' : ''} key={index} />)}</div><div className="receive-metrics"><small>{progress.received} captured · {progress.total - progress.received} missing</small>{scanRate > 0 && <small>{scanRate.toFixed(1)} frames/s · ~{remainingSeconds}s left</small>}</div></>}</div>}
+      {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA QUALITY</span><strong>{cameraQuality.label}</strong></div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div><small>{cameraQuality.score}% signal score</small><small>Recommended sender speed: <strong>{cameraQuality.recommendation}</strong></small></div></div>}
+      {!result && importSummary && <div className="import-summary"><Icon name="image" size={16} /> {importSummary}</div>}
+
+      {!result && <div className="status-card" aria-live="polite"><div className="status-line"><div><span className={`status-indicator ${scanning || importing ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><div className="frame-map" aria-label={`${progress.received} of ${progress.total} frames available`}>{frameMap.map((captured, index) => <span className={captured ? 'captured' : ''} key={index} />)}</div><div className="receive-metrics"><small>{progress.direct} scanned{progress.recovery > 0 ? ` + ${progress.recovery} recovered` : ''} · {progress.total - progress.received} missing</small>{scanRate > 0 && <small>{scanRate.toFixed(1)} frames/s · ~{remainingSeconds}s left</small>}</div></>}</div>}
       {error && <div className="error-box" role="alert">{error}</div>}
 
       {result && <div className="result-card"><div className="success-orbit"><Icon name="shield" size={32} /></div><div className="success-badge">✓ SHA-256 verified</div><h3>{result.kind === 'text' ? 'Received text' : (result.name || 'Received file')}</h3><p>{formatBytes(result.bytes.length)} · received entirely offline</p>{result.kind === 'text' ? <><textarea ref={resultTextRef} className="text-input result-text" readOnly value={textResult} rows={8} /><button className="primary-button full" onClick={copyText}><Icon name="copy" size={18} /> {copied ? 'Copied!' : 'Copy text'}</button></> : <button className="primary-button full" onClick={saveResult}><Icon name="download" size={18} /> Save file</button>}</div>}
