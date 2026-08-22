@@ -46,7 +46,7 @@ export default function Receiver({ active = true }) {
   const nativeLastScanAtRef = useRef(0)
   const smartScanCycleRef = useRef(0)
   const [scanning, setScanning] = useState(false)
-  const [status, setStatus] = useState('Ready when you are')
+  const [status, setStatus] = useState('Ready to scan')
   const [progress, setProgress] = useState({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] })
   const [result, setResult] = useState(null)
   const [error, setError] = useState('')
@@ -86,7 +86,7 @@ export default function Receiver({ active = true }) {
   }, [])
 
   function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelAnimationFrame(nativeScanFrameRef.current); nativeScanFrameRef.current = 0; nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; smartScanCycleRef.current = 0; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setNativeFastScan(false); setScanning(false) }
-  function resetTransfer() { importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }); setFullScreen(false) }
+  function resetTransfer() { importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }); setFullScreen(false) }
 
   function updateCalibration(confidence) {
     const samples = [...qualitySamplesRef.current, confidence].slice(-12)
@@ -170,8 +170,8 @@ export default function Receiver({ active = true }) {
     const frame = parseFrame(scanResult.getText())
     const matchesTransfer = Boolean(frame && (!activeIdRef.current || frame.id === activeIdRef.current))
     if (showTracking) trackResult(scanResult, matchesTransfer)
-    if (!frame) { setStatus('QR found, but it is not a BeamQR transfer'); return 'invalid' }
-    if (!matchesTransfer) { setStatus('Different transfer found — keep scanning the original'); return 'different' }
+    if (!frame) { setStatus('Not a BeamQR code'); return 'invalid' }
+    if (!matchesTransfer) { setStatus('Different transfer — keep scanning'); return 'different' }
     if (!activeIdRef.current) activeIdRef.current = frame.id
 
     const key = frameKey(frame)
@@ -183,11 +183,11 @@ export default function Receiver({ active = true }) {
     if (transferStatus.direct > 1) setScanRate((transferStatus.direct - 1) / Math.max(.25, (now - firstFrameAtRef.current) / 1000))
     if (showTracking) navigator.vibrate?.(transferStatus.complete ? [35, 45, 70] : 16)
     setProgress(transferStatus)
-    setStatus(transferStatus.recovery > 0 ? `Receiving frames… ${transferStatus.recovery} recovered` : 'Receiving frames…')
+    setStatus(transferStatus.recovery > 0 ? `Receiving · ${transferStatus.recovery} recovered` : 'Receiving…')
 
     if (transferStatus.complete) {
       rebuildingRef.current = true
-      setStatus(transferStatus.recovery > 0 ? 'Recovering and verifying…' : 'Verifying transfer…')
+      setStatus(transferStatus.recovery > 0 ? 'Recovering and verifying…' : 'Verifying…')
       try {
         const rebuilt = await rebuildTransfer(framesRef.current)
         setResult(rebuilt); setStatus('Transfer complete'); stopScanner()
@@ -315,7 +315,7 @@ export default function Receiver({ active = true }) {
         if (Object.keys(cameraTuning).length) videoTrack.applyConstraints({ advanced: [cameraTuning] }).catch(() => {})
       } catch {}
       setTorchAvailable(supportsTorch)
-      setScanning(true); setStatus(framesRef.current.size ? 'Receiving frames…' : 'Looking for BeamQR codes…')
+      setScanning(true); setStatus(framesRef.current.size ? 'Receiving…' : 'Looking for QR codes…')
       if (nativeDetector) startNativeDetection(session, nativeDetector)
     } catch (e) {
       try { controls?.stop() } catch {}
@@ -394,7 +394,7 @@ export default function Receiver({ active = true }) {
     if (importSession !== importSessionRef.current) return
     const accepted = counts.added + counts.recovery
     setImportSummary(`${accepted} new · ${counts.duplicate} duplicate · ${counts.invalid + counts.different} skipped`)
-    if (!completed) setStatus(accepted ? 'Screenshots imported — add more or continue scanning' : 'No new BeamQR frames found')
+    if (!completed) setStatus(accepted ? 'Frames imported · add more or scan' : 'No new BeamQR frames found')
     setImporting(false); setImportProgress({ current: 0, total: 0 })
   }
   function importScreenshots(event) {
@@ -431,9 +431,9 @@ export default function Receiver({ active = true }) {
 
   return (
     <section className="panel receiver-panel">
-      <div className="panel-heading"><div><div className="step-label">RECEIVE MODE</div><h2>{result ? 'Your transfer is ready' : 'Scan or import QR frames'}</h2><p>{result ? 'Integrity checked. The content is safe to open.' : 'Use the camera live, or import one or more QR screenshots.'}</p></div>{(progress.received > 0 || result) && <button className="ghost-button compact" onClick={() => { stopScanner(); resetTransfer() }}><Icon name="reset" size={17} /> Reset</button>}</div>
+      <div className="panel-heading"><div><div className="step-label">RECEIVE</div><h2>{result ? 'Transfer ready' : 'Scan QR codes'}</h2><p>{result ? 'Integrity verified.' : 'Use the camera or import screenshots.'}</p></div>{(progress.received > 0 || result) && <button className="ghost-button compact" onClick={() => { stopScanner(); resetTransfer() }}><Icon name="reset" size={17} /> Reset</button>}</div>
 
-      {!result && <div className="receive-methods" role="tablist" aria-label="Receive method"><button className={receiveMode === 'camera' ? 'active' : ''} onClick={() => selectReceiveMode('camera')} role="tab" aria-selected={receiveMode === 'camera'} disabled={importing}><span><Icon name="camera" size={20} /></span><div><strong>Live camera</strong><small>Fastest for animated QR</small></div></button><button className={receiveMode === 'images' ? 'active' : ''} onClick={() => selectReceiveMode('images')} role="tab" aria-selected={receiveMode === 'images'} disabled={importing}><span><Icon name="image" size={20} /></span><div><strong>QR screenshots</strong><small>Import one or many images</small></div></button></div>}
+      {!result && <div className="receive-methods" role="tablist" aria-label="Receive method"><button className={receiveMode === 'camera' ? 'active' : ''} onClick={() => selectReceiveMode('camera')} role="tab" aria-selected={receiveMode === 'camera'} disabled={importing}><span><Icon name="camera" size={20} /></span><div><strong>Live camera</strong><small>Best for animated codes</small></div></button><button className={receiveMode === 'images' ? 'active' : ''} onClick={() => selectReceiveMode('images')} role="tab" aria-selected={receiveMode === 'images'} disabled={importing}><span><Icon name="image" size={20} /></span><div><strong>Screenshots</strong><small>Import saved QR images</small></div></button></div>}
 
       {!result && (
         <div ref={cameraShellRef} hidden={receiveMode !== 'camera'} className={`camera-shell ${scanning ? 'is-scanning' : ''} ${tracking?.valid ? 'has-lock' : ''} ${fullScreen ? 'camera-fullscreen' : ''}`}>
@@ -448,24 +448,24 @@ export default function Receiver({ active = true }) {
           )}
           {tracking && <><div className={`tracking-badge ${tracking.valid ? '' : 'foreign'}`}><span /> {tracking.label.toLowerCase()} <strong>{tracking.confidence}%</strong></div><div className={`confidence-meter ${tracking.valid ? '' : 'foreign'}`}><i style={{ width: `${tracking.confidence}%` }} /></div></>}
           {autoZoom > 0 && <div className="auto-zoom-badge">AUTO ZOOM <strong>{autoZoom.toFixed(1)}×</strong></div>}
-          {scanning && <><div className="vision-assist-badge"><span>✦</span> ON-DEVICE VISION</div><button type="button" className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullScreen ? 'Exit fullscreen camera' : 'Open fullscreen camera'}><Icon name={fullScreen ? 'collapse' : 'expand'} size={19} /></button></>}
-          {scanning && <div className="fullscreen-hud"><div className="fullscreen-status"><span className={`status-indicator ${scanning ? 'active' : ''}`} /><div><strong>{status}</strong><small>{progress.total > 0 ? `${percentage}% · ${progress.received}/${progress.total} frames` : tracking?.valid ? 'Adaptive fast scan active' : 'Searching full frame + focus area'}</small></div></div><div className="fullscreen-actions"><button type="button" onClick={flipCamera} aria-label="Flip camera"><Icon name="flip" size={18} /></button>{torchAvailable && <button type="button" className={torchOn ? 'is-active' : ''} onClick={toggleTorch} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'}><Icon name="flash" size={18} /></button>}<button type="button" onClick={toggleFullscreen} aria-label="Exit fullscreen camera"><Icon name="collapse" size={18} /></button><button type="button" className="stop" onClick={stopFullscreenScanner} aria-label="Stop camera"><Icon name="stop" size={17} /></button></div></div>}
-          {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera preview</strong><small>Your browser will ask for permission</small></div>}
+          {scanning && <><div className="vision-assist-badge"><span>✦</span> SMART VISION</div><button type="button" className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullScreen ? 'Exit fullscreen camera' : 'Open fullscreen camera'}><Icon name={fullScreen ? 'collapse' : 'expand'} size={19} /></button></>}
+          {scanning && <div className="fullscreen-hud"><div className="fullscreen-status"><span className={`status-indicator ${scanning ? 'active' : ''}`} /><div><strong>{status}</strong><small>{progress.total > 0 ? `${percentage}% · ${progress.received}/${progress.total} frames` : tracking?.valid ? 'Fast scan active' : 'Searching full frame and center'}</small></div></div><div className="fullscreen-actions"><button type="button" onClick={flipCamera} aria-label="Flip camera"><Icon name="flip" size={18} /></button>{torchAvailable && <button type="button" className={torchOn ? 'is-active' : ''} onClick={toggleTorch} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'}><Icon name="flash" size={18} /></button>}<button type="button" onClick={toggleFullscreen} aria-label="Exit fullscreen camera"><Icon name="collapse" size={18} /></button><button type="button" className="stop" onClick={stopFullscreenScanner} aria-label="Stop camera"><Icon name="stop" size={17} /></button></div></div>}
+          {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera ready</strong><small>Allow access to begin</small></div>}
         </div>
       )}
 
-      {!result && receiveMode === 'images' && <label className={`screenshot-zone ${importDragging ? 'dragging' : ''} ${importing ? 'is-loading' : ''}`} onDragEnter={(event) => { event.preventDefault(); setImportDragging(true) }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setImportDragging(false)} onDrop={(event) => { event.preventDefault(); setImportDragging(false); importFiles(event.dataTransfer.files) }}><input type="file" accept="image/*" multiple disabled={importing} onChange={importScreenshots} /><span className="screenshot-icon"><Icon name="image" size={27} /></span><strong>{importing ? `Reading image ${importProgress.current} of ${importProgress.total}` : 'Drop QR screenshots here'}</strong><small>{importing ? 'Detecting and deduplicating QR frames…' : 'Select multiple images together · order does not matter'}</small>{!importing && <em>Choose images</em>}</label>}
+      {!result && receiveMode === 'images' && <label className={`screenshot-zone ${importDragging ? 'dragging' : ''} ${importing ? 'is-loading' : ''}`} onDragEnter={(event) => { event.preventDefault(); setImportDragging(true) }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setImportDragging(false)} onDrop={(event) => { event.preventDefault(); setImportDragging(false); importFiles(event.dataTransfer.files) }}><input type="file" accept="image/*" multiple disabled={importing} onChange={importScreenshots} /><span className="screenshot-icon"><Icon name="image" size={27} /></span><strong>{importing ? `Reading ${importProgress.current} of ${importProgress.total}` : 'Drop QR screenshots'}</strong><small>{importing ? 'Finding unique frames…' : 'Select multiple images · any order'}</small>{!importing && <em>Choose images</em>}</label>}
 
       {!result && receiveMode === 'camera' && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? stopScanner() : startScanner()}><Icon name={scanning ? 'stop' : 'camera'} size={18} /> {scanning ? 'Stop camera' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}</div>}
 
-      {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA QUALITY</span><strong>{cameraQuality.label}</strong>{nativeFastScan && <em className="native-fast">✦ Smart multi-scale detect</em>}</div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div><small>{cameraQuality.score}% signal score</small><small>Recommended sender speed: <strong>{cameraQuality.recommendation}</strong></small></div></div>}
+      {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA</span><strong>{cameraQuality.label}</strong>{nativeFastScan && <em className="native-fast">✦ Multi-scale detection</em>}</div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div><small>{cameraQuality.score}% signal</small><small>Sender speed: <strong>{cameraQuality.recommendation}</strong></small></div></div>}
       {!result && importSummary && <div className="import-summary"><Icon name="image" size={16} /> {importSummary}</div>}
 
       {!result && <div className="status-card" aria-live="polite"><div className="status-line"><div><span className={`status-indicator ${scanning || importing ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><div className="frame-map" aria-label={`${progress.received} of ${progress.total} frames available`}>{frameMap.map((frameState, index) => <span className={frameState} key={index} />)}</div><div className="receive-metrics"><small>{progress.direct} scanned{progress.recovery > 0 ? ` + ${progress.recovery} recovered` : ''} · {progress.total - progress.received} missing</small>{scanRate > 0 && <small>{scanRate.toFixed(1)} frames/s · ~{remainingSeconds}s left</small>}</div></>}</div>}
       {error && <div className="error-box" role="alert">{error}</div>}
 
-      {result && <div className="result-card"><div className="success-orbit"><Icon name="shield" size={32} /></div><div className="success-badge">✓ SHA-256 verified</div><h3>{result.kind === 'text' ? 'Received text' : (result.name || 'Received file')}</h3><p>{formatBytes(result.bytes.length)} · received entirely offline</p>{result.kind === 'text' ? <><textarea ref={resultTextRef} className="text-input result-text" readOnly value={textResult} rows={8} /><button className="primary-button full" onClick={copyText}><Icon name="copy" size={18} /> {copied ? 'Copied!' : 'Copy text'}</button></> : <button className="primary-button full" onClick={saveResult}><Icon name="download" size={18} /> Save file</button>}</div>}
-      <div className="privacy-note"><span>✓</span><p><strong>Camera only.</strong> Frames are assembled in this browser and are never sent over a network.</p></div>
+      {result && <div className="result-card"><div className="success-orbit"><Icon name="shield" size={32} /></div><div className="success-badge">✓ SHA-256 verified</div><h3>{result.kind === 'text' ? 'Received text' : (result.name || 'Received file')}</h3><p>{formatBytes(result.bytes.length)} · offline</p>{result.kind === 'text' ? <><textarea ref={resultTextRef} className="text-input result-text" readOnly value={textResult} rows={8} /><button className="primary-button full" onClick={copyText}><Icon name="copy" size={18} /> {copied ? 'Copied!' : 'Copy text'}</button></> : <button className="primary-button full" onClick={saveResult}><Icon name="download" size={18} /> Save file</button>}</div>}
+      <div className="privacy-note"><span>✓</span><p><strong>Processed locally.</strong> Nothing is uploaded.</p></div>
     </section>
   )
 }
