@@ -186,26 +186,22 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .import-summary { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 12px; color: var(--muted); font-size: .74rem; }
 .wifi-panel { position: relative; overflow: hidden; isolation: isolate; }
 .wifi-panel::before { content: ''; position: absolute; z-index: -1; width: 310px; height: 310px; right: -150px; top: -170px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 9%, transparent); filter: blur(5px); }
-.wifi-heading { margin-bottom: 8px; }
+.wifi-heading { margin-bottom: 18px; }
 .wifi-heading p { margin: 7px 0 0; color: var(--muted); font-size: .82rem; }
-.wifi-mode-badge { width: fit-content; display: flex; align-items: center; gap: 7px; margin-bottom: 18px; padding: 6px 9px; border: 1px solid color-mix(in srgb, var(--accent) 24%, var(--border)); border-radius: 99px; background: color-mix(in srgb, var(--accent) 6%, var(--surface-3)); color: var(--accent-strong); font-size: .61rem; font-weight: 850; letter-spacing: .11em; }
-.wifi-mode-badge span, .wifi-live-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent), 0 0 9px color-mix(in srgb, var(--accent) 50%, transparent); animation: pulse 1.25s infinite; }
+.wifi-live-dot { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 10%, transparent), 0 0 9px color-mix(in srgb, var(--accent) 50%, transparent); animation: pulse 1.25s infinite; }
 .wifi-role-switch { gap: 8px; padding: 6px; margin-bottom: 18px; border-radius: 17px; }
-.wifi-role-switch button { justify-content: flex-start; min-height: 64px; padding: 10px 14px; text-align: left; }
+.wifi-role-switch button { justify-content: center; min-height: 52px; padding: 9px 14px; }
 .wifi-role-switch button > .icon { color: var(--faint); transition: color .2s ease, transform .28s var(--motion-spring); }
-.wifi-role-switch button > span { display: grid; gap: 1px; }
 .wifi-role-switch button strong { font-size: .82rem; }
-.wifi-role-switch button small { color: var(--faint); font-size: .65rem; font-weight: 600; }
 .wifi-role-switch button.active { box-shadow: 0 6px 18px rgba(0,0,0,.12), inset 0 0 0 1px color-mix(in srgb, var(--accent) 10%, transparent); }
 .wifi-role-switch button.active > .icon { color: var(--accent-strong); transform: scale(1.08); }
 .wifi-action-view { animation: reveal-up .4s var(--motion-smooth) both; }
-.wifi-file { min-height: 205px; border-radius: 20px; }
+.wifi-file { min-height: 180px; border-radius: 18px; }
 .wifi-action-icon { width: 58px; height: 58px; display: grid; place-items: center; margin-bottom: 3px; border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border)); border-radius: 18px; background: color-mix(in srgb, var(--accent) 10%, var(--surface-2)); color: var(--accent-strong); box-shadow: 0 12px 30px rgba(0,0,0,.09); transition: transform .3s var(--motion-spring); }
 .wifi-file:hover .wifi-action-icon { transform: translateY(-4px) rotate(-3deg); }
 .wifi-file strong { max-width: 90%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wifi-file em { margin-top: 7px; padding: 6px 10px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 11%, var(--surface-2)); color: var(--accent-strong); font-size: .65rem; font-style: normal; font-weight: 800; }
 .wifi-cta { min-height: 52px; border-radius: 15px; }
-.wifi-receive-ready { position: relative; overflow: hidden; display: grid; place-items: center; gap: 10px; padding: 30px 22px 22px; border: 1px solid var(--border); border-radius: 20px; background: radial-gradient(circle at 50% 24%, color-mix(in srgb, var(--accent) 8%, transparent), transparent 36%), var(--surface-3); text-align: center; animation: reveal-up .4s var(--motion-smooth) both; }
+.wifi-receive-ready { position: relative; overflow: hidden; display: grid; place-items: center; gap: 10px; padding: 25px 22px 20px; border: 1px solid var(--border); border-radius: 18px; background: var(--surface-3); text-align: center; animation: reveal-up .4s var(--motion-smooth) both; }
 .wifi-receive-ready.is-dragging { border-color: var(--accent-strong); background: color-mix(in srgb, var(--accent) 9%, var(--surface-3)); box-shadow: inset 0 0 0 2px color-mix(in srgb, var(--accent) 12%, transparent); }
 .wifi-receive-ready.is-dragging::after { content: 'Drop QR image'; position: absolute; z-index: 4; display: grid; place-items: center; inset: 0; border-radius: inherit; background: color-mix(in srgb, var(--surface-3) 88%, transparent); color: var(--accent-strong); font-size: .85rem; font-weight: 850; pointer-events: none; backdrop-filter: blur(8px); }
 .wifi-receive-ready > div { display: grid; gap: 5px; }
@@ -215,7 +211,7 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .wifi-upload-button { cursor: pointer; }
 .wifi-upload-button.is-loading { cursor: wait; opacity: .68; }
 .wifi-upload-button input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
-.wifi-radar { width: 74px; height: 74px; display: grid; place-items: center; margin-bottom: 6px; border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--border)); border-radius: 50%; background: color-mix(in srgb, var(--accent) 9%, var(--surface-2)); color: var(--accent-strong); box-shadow: 0 0 0 9px color-mix(in srgb, var(--accent) 4%, transparent); animation: wifi-radar 2.4s ease-in-out infinite; }
+.wifi-radar { width: 62px; height: 62px; display: grid; place-items: center; margin-bottom: 4px; border: 1px solid color-mix(in srgb, var(--accent) 28%, var(--border)); border-radius: 18px; background: color-mix(in srgb, var(--accent) 8%, var(--surface-2)); color: var(--accent-strong); }
 .wifi-pair-code { display: grid; place-items: center; gap: 17px; padding: 20px; border: 1px solid var(--border); border-radius: 21px; background: var(--surface-3); text-align: center; animation: reveal-up .4s var(--motion-smooth) both; }
 .wifi-state-heading { display: flex; align-items: center; gap: 11px; justify-self: stretch; text-align: left; }
 .wifi-state-heading > div { display: grid; gap: 3px; }
@@ -226,7 +222,6 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .wifi-pair-file small { color: var(--faint); font-size: .63rem; }
 .wifi-qr-shell { width: min(100%, 400px); padding: 10px; border-radius: 27px; background: linear-gradient(145deg, #fff, #f2f7ed); box-shadow: 0 22px 55px rgba(0,0,0,.18); }
 .wifi-pair-code .qr-code-frame { width: 100%; box-shadow: none; }
-.wifi-scan-once { display: flex; align-items: center; gap: 8px; color: var(--accent-strong); font-size: .74rem; font-weight: 800; }
 .wifi-pair-actions { width: 100%; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .wifi-pair-actions button { min-height: 42px; }
 .wifi-scanner { position: relative; overflow: hidden; min-height: clamp(390px, 62vh, 620px); border: 1px solid color-mix(in srgb, var(--accent) 22%, var(--border)); border-radius: 21px; background: #050706; box-shadow: 0 20px 50px rgba(0,0,0,.2); animation: reveal-up .38s var(--motion-smooth) both; }
@@ -256,7 +251,6 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .wifi-trust-row { display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 8px 14px; margin-top: 17px; color: var(--faint); font-size: .63rem; }
 .wifi-trust-row span { display: flex; align-items: center; gap: 6px; }
 .wifi-trust-row i { width: 5px; height: 5px; border-radius: 50%; background: color-mix(in srgb, var(--accent) 70%, var(--faint)); }
-@keyframes wifi-radar { 50% { box-shadow: 0 0 0 16px transparent; transform: scale(1.03); } }
 .status-card, .result-card { margin-top: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 15px; background: var(--surface-3); animation: reveal-up .38s var(--motion-smooth) both; }
 .status-line, .status-line > div { display: flex; justify-content: space-between; align-items: center; gap: 9px; } .status-line > div { justify-content: flex-start; }
 .status-indicator { width: 8px; height: 8px; border-radius: 50%; background: var(--faint); } .status-indicator.active { background: var(--accent); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 12%, transparent); animation: pulse 1.2s infinite; }
@@ -295,7 +289,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.975) !important
   .calibration-card { grid-template-columns: 1fr; gap: 9px; } .camera-metrics { justify-content: space-between; }
   .split-controls, .sender-actions { align-items: stretch; } .sender-actions { flex-direction: column-reverse; } .awake-badge { justify-content: center; }
   .receive-metrics { display: block; } .receive-metrics small:last-child { text-align: left; }
-  .wifi-panel { padding: 18px; } .wifi-heading p { max-width: 230px; } .wifi-role-switch button { min-height: 60px; padding: 9px 10px; } .wifi-role-switch button small { display: none; }
+  .wifi-panel { padding: 18px; } .wifi-heading p { max-width: 230px; } .wifi-role-switch button { min-height: 50px; padding: 9px 10px; }
   .wifi-file { min-height: 190px; } .wifi-receive-actions { grid-template-columns: 1fr; } .wifi-pair-code { padding: 15px; } .wifi-qr-shell { padding: 6px; border-radius: 22px; } .wifi-state-heading small { max-width: 240px; } .wifi-pair-actions { grid-template-columns: 1fr; }
   .wifi-scanner { min-height: 68vh; } .wifi-progress { padding: 16px; } .wifi-transfer-metrics { grid-template-columns: 1.4fr 1fr; } .wifi-transfer-metrics > div:last-child { grid-column: 1 / -1; } .wifi-trust-row { gap: 7px 11px; }
 }
