@@ -26,6 +26,7 @@ export default function Receiver({ active = true }) {
   const scanSessionRef = useRef(0)
   const resultTextRef = useRef(null)
   const copyTimerRef = useRef(null)
+  const trackingTimerRef = useRef(null)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready when you are')
   const [progress, setProgress] = useState({ received: 0, total: 0 })
@@ -33,19 +34,45 @@ export default function Receiver({ active = true }) {
   const [error, setError] = useState('')
   const [cameraFacing, setCameraFacing] = useState('environment')
   const [copied, setCopied] = useState(false)
+  const [tracking, setTracking] = useState(null)
 
   useEffect(() => () => {
     scanSessionRef.current += 1
     try { controlsRef.current?.stop() } catch {}
     clearTimeout(copyTimerRef.current)
+    clearTimeout(trackingTimerRef.current)
   }, [])
 
   useEffect(() => {
     if (!active) stopScanner()
   }, [active])
 
-  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; setScanning(false) }
-  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false) }
+  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; clearTimeout(trackingTimerRef.current); setTracking(null); setScanning(false) }
+  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null) }
+
+  function trackResult(scanResult, valid) {
+    const video = videoRef.current
+    const rawPoints = scanResult.getResultPoints?.() || []
+    if (!video || rawPoints.length < 3 || !video.videoWidth || !video.videoHeight) return
+
+    const point = (value) => ({ x: value.getX?.() ?? value.x, y: value.getY?.() ?? value.y })
+    const bottomLeft = point(rawPoints[0])
+    const topLeft = point(rawPoints[1])
+    const topRight = point(rawPoints[2])
+    const bottomRight = { x: bottomLeft.x + topRight.x - topLeft.x, y: bottomLeft.y + topRight.y - topLeft.y }
+    const width = video.clientWidth
+    const height = video.clientHeight
+    const scale = Math.max(width / video.videoWidth, height / video.videoHeight)
+    const offsetX = (width - video.videoWidth * scale) / 2
+    const offsetY = (height - video.videoHeight * scale) / 2
+    const mapped = [topLeft, topRight, bottomRight, bottomLeft]
+      .map(({ x, y }) => `${x * scale + offsetX},${y * scale + offsetY}`)
+      .join(' ')
+
+    setTracking({ points: mapped, width, height, valid })
+    clearTimeout(trackingTimerRef.current)
+    trackingTimerRef.current = setTimeout(() => setTracking(null), 550)
+  }
 
   async function startScanner(nextFacing = cameraFacing, preserveProgress = false) {
     stopScanner()
@@ -59,7 +86,8 @@ export default function Receiver({ active = true }) {
       const controls = await reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 } } }, videoRef.current, async (scanResult) => {
         if (session !== scanSessionRef.current || !scanResult || rebuildingRef.current) return
         const frame = parseFrame(scanResult.getText())
-        if (!frame) { setStatus('That QR code is not a BeamQR transfer'); return }
+        trackResult(scanResult, Boolean(frame))
+        if (!frame) { setStatus('QR found, but it is not a BeamQR transfer'); return }
         if (activeIdRef.current && frame.id !== activeIdRef.current) { setStatus('Different transfer found — keep scanning the original'); return }
         if (!activeIdRef.current) activeIdRef.current = frame.id
         if (!framesRef.current.has(frame.i)) {

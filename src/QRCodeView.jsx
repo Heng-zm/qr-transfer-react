@@ -8,14 +8,22 @@ export default function QRCodeView({ value, size = 320 }) {
     if (!value || !canvasRef.current) return
     QRCode.toCanvas(canvasRef.current, value, {
       width: size,
-      margin: 2,
+      margin: 3,
       errorCorrectionLevel: 'M',
       color: {
-        dark: '#000000',
+        dark: '#10210b',
         light: '#ffffff'
       }
     })
   }, [value, size])
 
-  return <canvas ref={canvasRef} className="qr-canvas" aria-label="Transfer QR code" />
+  return (
+    <div className="qr-code-frame">
+      <span className="qr-corner top-left" />
+      <span className="qr-corner top-right" />
+      <span className="qr-corner bottom-left" />
+      <span className="qr-corner bottom-right" />
+      <canvas ref={canvasRef} className="qr-canvas" aria-label="BeamQR transfer code" />
+    </div>
+  )
 }
