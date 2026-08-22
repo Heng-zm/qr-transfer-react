@@ -28,6 +28,7 @@ export default function Receiver({ active = true }) {
   const resultTextRef = useRef(null)
   const copyTimerRef = useRef(null)
   const trackingTimerRef = useRef(null)
+  const trackingHistoryRef = useRef(null)
   const firstFrameAtRef = useRef(0)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready when you are')
@@ -52,8 +53,8 @@ export default function Receiver({ active = true }) {
     if (!active) stopScanner()
   }, [active])
 
-  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; clearTimeout(trackingTimerRef.current); setTracking(null); setTorchAvailable(false); setTorchOn(false); setScanning(false) }
-  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0) }
+  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; setTracking(null); setTorchAvailable(false); setTorchOn(false); setScanning(false) }
+  function resetTransfer() { framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; trackingHistoryRef.current = null; setProgress({ received: 0, total: 0 }); setResult(null); setError(''); setStatus('Ready when you are'); setCopied(false); setTracking(null); setScanRate(0) }
 
   function trackResult(scanResult, valid) {
     const video = videoRef.current
@@ -71,13 +72,28 @@ export default function Receiver({ active = true }) {
     const scale = Math.max(width / video.videoWidth, height / video.videoHeight)
     const offsetX = (width - video.videoWidth * scale) / 2
     const offsetY = (height - video.videoHeight * scale) / 2
-    const mapped = [topLeft, topRight, bottomRight, bottomLeft]
-      .map(({ x, y }) => `${x * scale + offsetX},${y * scale + offsetY}`)
-      .join(' ')
+    const mapped = [topLeft, topRight, bottomRight, bottomLeft].map(({ x, y }) => ({ x: x * scale + offsetX, y: y * scale + offsetY }))
+    const previous = trackingHistoryRef.current
+    const sameViewport = previous?.width === width && previous?.height === height && previous?.valid === valid
+    const diagonal = Math.hypot(width, height) || 1
+    const movement = sameViewport
+      ? mapped.reduce((total, current, index) => total + Math.hypot(current.x - previous.points[index].x, current.y - previous.points[index].y), 0) / mapped.length / diagonal
+      : 1
+    const stable = sameViewport && movement < .12
+    const hits = stable ? Math.min(previous.hits + 1, 6) : 1
+    const smoothing = stable ? .58 : 1
+    const smoothed = mapped.map((current, index) => stable ? {
+      x: previous.points[index].x + (current.x - previous.points[index].x) * smoothing,
+      y: previous.points[index].y + (current.y - previous.points[index].y) * smoothing,
+    } : current)
+    const stabilityBonus = stable ? Math.max(0, Math.round((.12 - movement) * 110)) : 0
+    const confidence = Math.min(valid ? 99 : 55, (valid ? 54 : 20) + hits * 7 + stabilityBonus)
+    const label = valid ? (confidence >= 85 ? 'HIGH CONFIDENCE' : confidence >= 68 ? 'LOCKED' : 'ACQUIRING') : 'OTHER QR'
 
-    setTracking({ points: mapped, width, height, valid })
+    trackingHistoryRef.current = { points: smoothed, width, height, valid, hits }
+    setTracking({ points: smoothed.map(({ x, y }) => `${x},${y}`).join(' '), width, height, valid, confidence, label })
     clearTimeout(trackingTimerRef.current)
-    trackingTimerRef.current = setTimeout(() => setTracking(null), 550)
+    trackingTimerRef.current = setTimeout(() => { trackingHistoryRef.current = null; setTracking(null) }, 680)
   }
 
   async function startScanner(nextFacing = cameraFacing, preserveProgress = false) {
@@ -88,11 +104,12 @@ export default function Receiver({ active = true }) {
     if (!window.isSecureContext) { setError('Camera access requires HTTPS or localhost. Install the PWA first for fully offline use on iPhone or iPad.'); setStatus('Camera unavailable'); return }
     if (!navigator.mediaDevices?.getUserMedia) { setError('Camera scanning is not supported by this browser.'); setStatus('Camera unavailable'); return }
     try {
-      const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 35 })
-      const controls = await reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 } } }, videoRef.current, async (scanResult) => {
+      const reader = new BrowserQRCodeReader(undefined, { delayBetweenScanAttempts: 20 })
+      const controls = await reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: nextFacing }, width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30 } } }, videoRef.current, async (scanResult) => {
         if (session !== scanSessionRef.current || !scanResult || rebuildingRef.current) return
         const frame = parseFrame(scanResult.getText())
-        trackResult(scanResult, Boolean(frame))
+        const matchesTransfer = Boolean(frame && (!activeIdRef.current || frame.id === activeIdRef.current))
+        trackResult(scanResult, matchesTransfer)
         if (!frame) { setStatus('QR found, but it is not a BeamQR transfer'); return }
         if (activeIdRef.current && frame.id !== activeIdRef.current) { setStatus('Different transfer found — keep scanning the original'); return }
         if (!activeIdRef.current) activeIdRef.current = frame.id
@@ -115,7 +132,15 @@ export default function Receiver({ active = true }) {
       controlsRef.current = controls
       const videoTrack = videoRef.current?.srcObject?.getVideoTracks?.()[0]
       let supportsTorch = false
-      try { supportsTorch = Boolean(videoTrack?.getCapabilities?.().torch) } catch {}
+      try {
+        const capabilities = videoTrack?.getCapabilities?.() || {}
+        supportsTorch = Boolean(capabilities.torch)
+        const cameraTuning = {}
+        if (capabilities.focusMode?.includes?.('continuous')) cameraTuning.focusMode = 'continuous'
+        if (capabilities.exposureMode?.includes?.('continuous')) cameraTuning.exposureMode = 'continuous'
+        if (capabilities.whiteBalanceMode?.includes?.('continuous')) cameraTuning.whiteBalanceMode = 'continuous'
+        if (Object.keys(cameraTuning).length) videoTrack.applyConstraints({ advanced: [cameraTuning] }).catch(() => {})
+      } catch {}
       setTorchAvailable(supportsTorch)
       setScanning(true); setStatus(framesRef.current.size ? 'Receiving frames…' : 'Looking for BeamQR codes…')
     } catch (e) {
@@ -172,10 +197,10 @@ export default function Receiver({ active = true }) {
           {tracking && (
             <svg className={`qr-tracker ${tracking.valid ? 'valid' : 'foreign'}`} viewBox={`0 0 ${tracking.width} ${tracking.height}`} aria-hidden="true">
               <polygon points={tracking.points} />
-              <text x="50%" y="24">{tracking.valid ? 'BEAMQR LOCKED' : 'QR DETECTED'}</text>
+              <text x="50%" y="24">{tracking.label}</text>
             </svg>
           )}
-          {tracking?.valid && <div className="tracking-badge"><span /> QR locked</div>}
+          {tracking && <><div className={`tracking-badge ${tracking.valid ? '' : 'foreign'}`}><span /> {tracking.label.toLowerCase()} <strong>{tracking.confidence}%</strong></div><div className={`confidence-meter ${tracking.valid ? '' : 'foreign'}`}><i style={{ width: `${tracking.confidence}%` }} /></div></>}
           {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera preview</strong><small>Your browser will ask for permission</small></div>}
         </div>
       )}

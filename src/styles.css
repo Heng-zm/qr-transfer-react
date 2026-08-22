@@ -97,6 +97,12 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; } .topbar p { margin
 .qr-tracker.foreign text { fill: #ffbe50; }
 .tracking-badge { position: absolute; top: 13px; right: 13px; display: flex; align-items: center; gap: 7px; padding: 7px 10px; border: 1px solid rgba(168,243,74,.38); border-radius: 99px; background: rgba(7,12,5,.78); color: #c6ff7d; font-size: .7rem; font-weight: 800; backdrop-filter: blur(8px); }
 .tracking-badge span { width: 7px; height: 7px; border-radius: 50%; background: #a8f34a; box-shadow: 0 0 8px #a8f34a; animation: pulse 1s infinite; }
+.tracking-badge strong { min-width: 28px; color: #fff; text-align: right; font-variant-numeric: tabular-nums; }
+.tracking-badge.foreign { border-color: rgba(255,190,80,.4); color: #ffd17e; }
+.tracking-badge.foreign span { background: #ffbe50; box-shadow: 0 0 8px #ffbe50; }
+.confidence-meter { position: absolute; left: 14px; right: 14px; bottom: 12px; height: 3px; overflow: hidden; border-radius: 99px; background: rgba(255,255,255,.16); backdrop-filter: blur(5px); }
+.confidence-meter i { display: block; height: 100%; border-radius: inherit; background: #a8f34a; box-shadow: 0 0 8px #a8f34a; transition: width .14s ease-out; }
+.confidence-meter.foreign i { background: #ffbe50; box-shadow: 0 0 8px #ffbe50; }
 @keyframes tracker-in { from { opacity: 0; transform: scale(.96); transform-origin: center; } }
 .camera-placeholder { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 7px; color: #879083; background: radial-gradient(circle at center, #182018, #080b09); }
 .camera-placeholder strong { color: #e8eee5; } .camera-placeholder small { font-size: .73rem; } .camera-icon { width: 62px; height: 62px; display: grid; place-items: center; margin-bottom: 5px; border: 1px solid #2f3d2a; border-radius: 50%; color: var(--accent); background: #111710; }
