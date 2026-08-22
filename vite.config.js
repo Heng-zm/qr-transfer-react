@@ -9,11 +9,11 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: [],
       manifest: {
-        name: 'QR Offline Transfer',
-        short_name: 'QR Transfer',
+        name: 'BeamQR — Offline Transfer',
+        short_name: 'BeamQR',
         description: 'Transfer text and files device-to-device using only QR codes.',
-        theme_color: '#0b0d10',
-        background_color: '#0b0d10',
+        theme_color: '#080b0f',
+        background_color: '#080b0f',
         display: 'standalone',
         start_url: '/',
         icons: [

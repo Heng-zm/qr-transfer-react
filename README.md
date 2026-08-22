@@ -1,6 +1,14 @@
-# QR Offline Transfer
+# BeamQR
 
 A React/Vite app that transfers text and files by showing animated QR codes on the sender and scanning them on the receiver.
+
+## Interface features
+
+- Responsive dark and light themes
+- Drag-and-drop file selection with live transfer estimates
+- Adjustable QR animation speed, frame stepping, and fullscreen display
+- Live camera scan progress and camera switching
+- Copy feedback, offline file download, and clear integrity status
 
 ## What it does
 
