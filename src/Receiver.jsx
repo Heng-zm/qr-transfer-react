@@ -235,7 +235,8 @@ export default function Receiver({ active = true }) {
     const scan = async (timestamp) => {
       const video = videoRef.current
       if (session !== scanSessionRef.current) return
-      if (nativeScanBusyRef.current || timestamp - nativeLastScanAtRef.current < 85 || !video || video.readyState < 2) { schedule(scan); return }
+      const scanInterval = trackingHistoryRef.current?.valid ? 52 : 92
+      if (nativeScanBusyRef.current || timestamp - nativeLastScanAtRef.current < scanInterval || !video || video.readyState < 2) { schedule(scan); return }
       nativeScanBusyRef.current = true
       nativeLastScanAtRef.current = timestamp
       try {
@@ -340,6 +341,13 @@ export default function Receiver({ active = true }) {
       else setFullScreen((current) => !current)
     } catch { setFullScreen((current) => !current) }
   }
+  async function stopFullscreenScanner() {
+    try {
+      if (document.fullscreenElement === cameraShellRef.current) await document.exitFullscreen()
+    } catch {}
+    setFullScreen(false)
+    stopScanner()
+  }
   async function toggleTorch() {
     const track = videoRef.current?.srcObject?.getVideoTracks?.()[0]
     if (!track) return
@@ -441,6 +449,7 @@ export default function Receiver({ active = true }) {
           {tracking && <><div className={`tracking-badge ${tracking.valid ? '' : 'foreign'}`}><span /> {tracking.label.toLowerCase()} <strong>{tracking.confidence}%</strong></div><div className={`confidence-meter ${tracking.valid ? '' : 'foreign'}`}><i style={{ width: `${tracking.confidence}%` }} /></div></>}
           {autoZoom > 0 && <div className="auto-zoom-badge">AUTO ZOOM <strong>{autoZoom.toFixed(1)}×</strong></div>}
           {scanning && <><div className="vision-assist-badge"><span>✦</span> ON-DEVICE VISION</div><button type="button" className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullScreen ? 'Exit fullscreen camera' : 'Open fullscreen camera'}><Icon name={fullScreen ? 'collapse' : 'expand'} size={19} /></button></>}
+          {scanning && <div className="fullscreen-hud"><div className="fullscreen-status"><span className={`status-indicator ${scanning ? 'active' : ''}`} /><div><strong>{status}</strong><small>{progress.total > 0 ? `${percentage}% · ${progress.received}/${progress.total} frames` : tracking?.valid ? 'Adaptive fast scan active' : 'Searching full frame + focus area'}</small></div></div><div className="fullscreen-actions"><button type="button" onClick={flipCamera} aria-label="Flip camera"><Icon name="flip" size={18} /></button>{torchAvailable && <button type="button" className={torchOn ? 'is-active' : ''} onClick={toggleTorch} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'}><Icon name="flash" size={18} /></button>}<button type="button" onClick={toggleFullscreen} aria-label="Exit fullscreen camera"><Icon name="collapse" size={18} /></button><button type="button" className="stop" onClick={stopFullscreenScanner} aria-label="Stop camera"><Icon name="stop" size={17} /></button></div></div>}
           {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera preview</strong><small>Your browser will ask for permission</small></div>}
         </div>
       )}
