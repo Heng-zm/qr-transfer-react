@@ -39,6 +39,7 @@ export default function Receiver({ active = true }) {
   const scanRateStartCountRef = useRef(0)
   const videoTrackRef = useRef(null)
   const zoomCapabilityRef = useRef(null)
+  const autoZoomEnabledRef = useRef(true)
   const lastZoomAtRef = useRef(0)
   const qualitySamplesRef = useRef([])
   const cameraBaseScoreRef = useRef(0)
@@ -61,6 +62,9 @@ export default function Receiver({ active = true }) {
   const [torchOn, setTorchOn] = useState(false)
   const [scanRate, setScanRate] = useState(0)
   const [autoZoom, setAutoZoom] = useState(0)
+  const [autoZoomEnabled, setAutoZoomEnabled] = useState(true)
+  const [zoomRange, setZoomRange] = useState(null)
+  const [zoomLevel, setZoomLevel] = useState(1)
   const [cameraQuality, setCameraQuality] = useState(null)
   const [importing, setImporting] = useState(false)
   const [importSummary, setImportSummary] = useState('')
@@ -98,11 +102,6 @@ export default function Receiver({ active = true }) {
   }, [])
 
   useEffect(() => {
-    document.documentElement.classList.toggle('camera-fullscreen-open', fullScreen)
-    return () => document.documentElement.classList.remove('camera-fullscreen-open')
-  }, [fullScreen])
-
-  useEffect(() => {
     const resetTrackerViewport = () => { trackingHistoryRef.current = null; setTracking(null) }
     window.addEventListener('resize', resetTrackerViewport)
     window.addEventListener('orientationchange', resetTrackerViewport)
@@ -121,8 +120,8 @@ export default function Receiver({ active = true }) {
   }
 
   function cancelNativeScanLoop() { try { nativeScanCancelRef.current?.() } catch {} nativeScanCancelRef.current = null }
-  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelNativeScanLoop(); nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; nativeMissStreakRef.current = 0; smartScanCycleRef.current = 0; smartCropAvailableRef.current = true; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setNativeFastScan(false); setScanning(false) }
-  function resetTransfer() { exitCameraFullscreen(); importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; scanRateStartCountRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }) }
+  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelNativeScanLoop(); nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; nativeMissStreakRef.current = 0; smartScanCycleRef.current = 0; smartCropAvailableRef.current = true; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setZoomRange(null); setZoomLevel(1); setNativeFastScan(false); setScanning(false) }
+  function resetTransfer() { exitCameraFullscreen(); autoZoomEnabledRef.current = true; setAutoZoomEnabled(true); importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; scanRateStartCountRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }) }
 
   function pauseScanner() {
     const hasFrames = framesRef.current.size > 0
@@ -143,11 +142,41 @@ export default function Receiver({ active = true }) {
     setCameraQuality({ score, recommendation, label, ready: samples.length >= 3 })
   }
 
+  function applyCameraZoom(value, automatic = false) {
+    const track = videoTrackRef.current
+    const capability = zoomCapabilityRef.current
+    if (!track || !capability) return
+    const step = Math.max(Number(capability.step) || .1, .08)
+    const target = Math.max(capability.min, Math.min(capability.max, capability.min + Math.round((Number(value) - capability.min) / step) * step))
+    if (!Number.isFinite(target)) return
+    lastZoomAtRef.current = performance.now()
+    track.applyConstraints({ advanced: [{ zoom: target }] })
+      .then(() => {
+        if (videoTrackRef.current !== track) return
+        setZoomLevel(target)
+        setAutoZoom(automatic && target > capability.min + step * .5 ? target : 0)
+      })
+      .catch(() => { if (videoTrackRef.current === track) { zoomCapabilityRef.current = null; setZoomRange(null); setAutoZoom(0) } })
+  }
+
+  function setManualCameraZoom(value) {
+    autoZoomEnabledRef.current = false
+    setAutoZoomEnabled(false)
+    applyCameraZoom(value, false)
+  }
+
+  function toggleAutoZoom() {
+    const next = !autoZoomEnabledRef.current
+    autoZoomEnabledRef.current = next
+    setAutoZoomEnabled(next)
+    if (!next) setAutoZoom(0)
+  }
+
   function zoomToQr(points, video) {
     const track = videoTrackRef.current
     const capability = zoomCapabilityRef.current
     const now = performance.now()
-    if (!track || !capability || now - lastZoomAtRef.current < 850) return
+    if (!autoZoomEnabledRef.current || !track || !capability || now - lastZoomAtRef.current < 850) return
 
     const xs = points.map(({ x }) => x)
     const ys = points.map(({ y }) => y)
@@ -166,24 +195,18 @@ export default function Receiver({ active = true }) {
     const target = Math.max(capability.min, Math.min(capability.max, capability.min + Math.round((desired - capability.min) / step) * step))
     if (!Number.isFinite(target) || Math.abs(target - current) < step * .75) return
 
-    lastZoomAtRef.current = now
-    track.applyConstraints({ advanced: [{ zoom: target }] })
-      .then(() => { if (videoTrackRef.current === track) setAutoZoom(target > capability.min + step * .5 ? target : 0) })
-      .catch(() => { if (videoTrackRef.current === track) { zoomCapabilityRef.current = null; setAutoZoom(0) } })
+    applyCameraZoom(target, true)
   }
 
   function relaxCameraZoom() {
     const track = videoTrackRef.current
     const capability = zoomCapabilityRef.current
     const now = performance.now()
-    if (!track || !capability || now - lastZoomAtRef.current < 900) return
+    if (!autoZoomEnabledRef.current || !track || !capability || now - lastZoomAtRef.current < 900) return
     const current = Number(track.getSettings?.().zoom) || capability.min || 1
     const step = Math.max(Number(capability.step) || .1, .08)
     if (current <= capability.min + step * .5) return
-    lastZoomAtRef.current = now
-    track.applyConstraints({ advanced: [{ zoom: capability.min }] })
-      .then(() => { if (videoTrackRef.current === track) setAutoZoom(0) })
-      .catch(() => { if (videoTrackRef.current === track) { zoomCapabilityRef.current = null; setAutoZoom(0) } })
+    applyCameraZoom(capability.min, true)
   }
 
   function trackResult(scanResult, valid) {
@@ -393,6 +416,15 @@ export default function Receiver({ active = true }) {
         setCameraQuality({ score: cameraBaseScoreRef.current, recommendation: 'Easy', label: 'Point at QR to calibrate', ready: false })
         supportsTorch = Boolean(capabilities.torch)
         zoomCapabilityRef.current = Number.isFinite(capabilities.zoom?.max) && capabilities.zoom.max > capabilities.zoom.min ? capabilities.zoom : null
+        if (zoomCapabilityRef.current) {
+          const zoomStep = Math.max(Number(zoomCapabilityRef.current.step) || .1, .08)
+          const currentZoom = Number(settings.zoom) || zoomCapabilityRef.current.min || 1
+          setZoomRange({ min: zoomCapabilityRef.current.min, max: zoomCapabilityRef.current.max, step: zoomStep })
+          setZoomLevel(currentZoom)
+        } else {
+          setZoomRange(null)
+          setZoomLevel(1)
+        }
         const cameraTuning = {}
         if (capabilities.focusMode?.includes?.('continuous')) cameraTuning.focusMode = 'continuous'
         if (capabilities.exposureMode?.includes?.('continuous')) cameraTuning.exposureMode = 'continuous'
@@ -498,6 +530,12 @@ export default function Receiver({ active = true }) {
     } catch { resultTextRef.current?.select(); setError('Clipboard access was blocked. The text has been selected so you can copy it manually.') }
   }
 
+  function renderZoomControl(className = 'zoom-control') {
+    if (!zoomRange) return null
+    const commitZoom = (event) => setManualCameraZoom(Number(event.currentTarget.value))
+    return <div className={className}><span>{zoomLevel.toFixed(1)}×</span><input type="range" min={zoomRange.min} max={zoomRange.max} step={zoomRange.step} value={zoomLevel} onChange={(event) => setZoomLevel(Number(event.target.value))} onPointerUp={commitZoom} onKeyUp={commitZoom} onBlur={commitZoom} aria-label="Camera zoom" /><button type="button" className={autoZoomEnabled ? 'is-active' : ''} onClick={toggleAutoZoom}>{autoZoomEnabled ? 'Auto' : 'Manual'}</button></div>
+  }
+
   const percentage = progress.total ? Math.round((progress.received / progress.total) * 100) : 0
   const hasPartialTransfer = progress.total > 0
   const textResult = result?.kind === 'text' ? decoder.decode(result.bytes) : ''
@@ -536,7 +574,7 @@ export default function Receiver({ active = true }) {
           {tracking && <><div className={`tracking-badge ${tracking.valid ? '' : 'foreign'}`}><span /> {tracking.label.toLowerCase()} <strong>{tracking.confidence}%</strong></div><div className={`confidence-meter ${tracking.valid ? '' : 'foreign'}`}><i style={{ width: `${tracking.confidence}%` }} /></div></>}
           {autoZoom > 0 && <div className="auto-zoom-badge">AUTO ZOOM <strong>{autoZoom.toFixed(1)}×</strong></div>}
           {scanning && <><div className="vision-assist-badge"><span>✦</span> SMART VISION</div><button type="button" className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullScreen ? 'Exit fullscreen camera' : 'Open fullscreen camera'}><Icon name={fullScreen ? 'collapse' : 'expand'} size={19} /></button></>}
-          {scanning && <div className="fullscreen-hud"><div className="fullscreen-status"><span className={`status-indicator ${scanning ? 'active' : ''}`} /><div><strong>{status}</strong><small>{progress.total > 0 ? `${percentage}% · ${progress.received}/${progress.total} frames` : tracking?.valid ? 'Fast scan active' : 'Searching full frame and center'}</small></div></div><div className="fullscreen-actions"><button type="button" onClick={flipCamera} aria-label="Flip camera"><Icon name="flip" size={18} /></button>{torchAvailable && <button type="button" className={torchOn ? 'is-active' : ''} onClick={toggleTorch} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'}><Icon name="flash" size={18} /></button>}<button type="button" onClick={toggleFullscreen} aria-label="Exit fullscreen camera"><Icon name="collapse" size={18} /></button><button type="button" className="pause" onClick={stopFullscreenScanner} aria-label="Pause scanning"><Icon name="pause" size={17} /></button></div></div>}
+          {scanning && <div className="fullscreen-hud"><div className="fullscreen-status"><span className={`status-indicator ${scanning ? 'active' : ''}`} /><div><strong>{status}</strong><small>{progress.total > 0 ? `${percentage}% · ${progress.received}/${progress.total} frames` : tracking?.valid ? 'Fast scan active' : 'Searching full frame and center'}</small></div></div>{renderZoomControl('fullscreen-zoom')}<div className="fullscreen-actions"><button type="button" onClick={flipCamera} aria-label="Flip camera"><Icon name="flip" size={18} /></button>{torchAvailable && <button type="button" className={torchOn ? 'is-active' : ''} onClick={toggleTorch} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'}><Icon name="flash" size={18} /></button>}<button type="button" onClick={toggleFullscreen} aria-label="Exit fullscreen camera"><Icon name="collapse" size={18} /></button><button type="button" className="pause" onClick={stopFullscreenScanner} aria-label="Pause scanning"><Icon name="pause" size={17} /></button></div></div>}
           {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera ready</strong></div>}
         </div>
       )}
@@ -545,7 +583,7 @@ export default function Receiver({ active = true }) {
 
       {!result && receiveMode === 'camera' && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? pauseScanner() : startScanner(cameraFacing, hasPartialTransfer)}><Icon name={scanning ? 'pause' : 'camera'} size={18} /> {scanning ? 'Pause' : hasPartialTransfer ? 'Resume' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}</div>}
 
-      {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA</span><strong>{cameraQuality.label}</strong>{nativeFastScan && <em className="native-fast">✦ Multi-scale detection</em>}</div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div><small>{cameraQuality.score}% signal</small><small>Sender speed: <strong>{cameraQuality.recommendation}</strong></small></div></div>}
+      {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA</span><strong>{cameraQuality.label}</strong>{nativeFastScan && <em className="native-fast">✦ Multi-scale detection</em>}</div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div className="camera-metrics"><small>{cameraQuality.score}% signal</small><small>Sender speed: <strong>{cameraQuality.recommendation}</strong></small></div>{renderZoomControl()}</div>}
       {!result && importSummary && <div className="import-summary"><Icon name="image" size={16} /> {importSummary}</div>}
 
       {!result && <div className="status-card" aria-live="polite"><div className="status-line"><div><span className={`status-indicator ${scanning || importing ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><div className="frame-map" aria-label={`${progress.received} of ${progress.total} frames available`}>{frameMap.map((frameState, index) => <span className={frameState} key={index} />)}</div><div className="receive-metrics"><small>{progress.direct} scanned{progress.recovery > 0 ? ` + ${progress.recovery} recovered` : ''} · {progress.total - progress.received} missing</small>{scanRate > 0 && <small>{scanRate.toFixed(1)} frames/s · ~{remainingSeconds}s left</small>}</div></>}</div>}

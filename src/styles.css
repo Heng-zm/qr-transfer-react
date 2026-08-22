@@ -9,7 +9,6 @@
 :root[data-theme="light"] { color: #17200e; background: #f1f4ed; --bg: #f1f4ed; --surface: #fff; --surface-2: #f4f7f1; --surface-3: #e9eee5; --border: #d6ddd0; --text: #17200e; --muted: #66705f; --faint: #7a8374; --accent: #78c722; --accent-strong: #65b313; --accent-text: #0f1b05; --danger: #a82737; --danger-bg: #fff0f1; --shadow: 0 24px 70px rgba(40,55,25,.10); }
 * { box-sizing: border-box; }
 html { min-width: 320px; min-height: 100%; background: var(--bg); transition: background-color .45s var(--motion-smooth), color .35s ease; }
-html.camera-fullscreen-open, html.camera-fullscreen-open body { overflow: hidden; overscroll-behavior: none; }
 body { position: relative; isolation: isolate; overflow-x: hidden; margin: 0; min-width: 320px; min-height: 100vh; background: var(--bg); color: var(--text); }
 body::before { content: ''; position: fixed; z-index: -1; inset: -35vh -25vw; pointer-events: none; background: radial-gradient(circle at 34% 18%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 25%), radial-gradient(circle at 78% 68%, color-mix(in srgb, #68cfff 6%, transparent), transparent 22%); filter: blur(2px); animation: ambient-drift 18s ease-in-out infinite alternate; }
 button, textarea, select, input { font: inherit; } button { cursor: pointer; transition: transform .2s var(--motion-spring), border-color .22s ease, background-color .22s ease, color .22s ease, box-shadow .22s ease; } button:disabled { cursor: not-allowed; opacity: .42; }
@@ -125,7 +124,8 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .fullscreen-button { position: absolute; right: 14px; bottom: 25px; width: 39px; height: 39px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(255,255,255,.22); border-radius: 11px; background: rgba(7,12,5,.78); color: #fff; backdrop-filter: blur(8px); }
 .fullscreen-button:hover { border-color: rgba(168,243,74,.62); color: #c6ff7d; }
 .fullscreen-hud { display: none; }
-.camera-fullscreen .fullscreen-button { display: none; }
+.camera-fullscreen .fullscreen-button { top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right)); bottom: auto; z-index: 8; display: grid; }
+.camera-fullscreen .tracking-badge { top: max(64px, calc(env(safe-area-inset-top) + 58px)); }
 .camera-fullscreen .vision-assist-badge { bottom: 94px; }
 .camera-fullscreen .confidence-meter { bottom: 78px; }
 .camera-fullscreen .fullscreen-hud { position: absolute; left: max(14px, env(safe-area-inset-left)); right: max(14px, env(safe-area-inset-right)); bottom: max(14px, env(safe-area-inset-bottom)); display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 11px 12px; border: 1px solid rgba(255,255,255,.18); border-radius: 16px; background: rgba(5,9,7,.82); color: #fff; box-shadow: 0 12px 40px rgba(0,0,0,.32); backdrop-filter: blur(14px); }
@@ -170,9 +170,17 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .calibration-card span { color: var(--accent-strong); font-size: .62rem; font-weight: 850; letter-spacing: .12em; }
 .calibration-card strong { font-size: .78rem; }
 .native-fast { width: fit-content; margin-top: 2px; padding: 3px 6px; border-radius: 99px; background: color-mix(in srgb, var(--accent) 12%, transparent); color: var(--accent-strong); font-size: .6rem; font-style: normal; font-weight: 800; }
-.calibration-card > div:last-child { display: flex; justify-content: flex-end; gap: 16px; }
+.camera-metrics { display: flex; justify-content: flex-end; gap: 16px; }
 .calibration-card small { color: var(--faint); font-size: .68rem; }
 .calibration-card small strong { color: var(--accent-strong); }
+.zoom-control, .fullscreen-zoom { display: grid; grid-template-columns: auto minmax(110px, 1fr) auto; align-items: center; gap: 10px; }
+.zoom-control { grid-column: 1 / -1; padding-top: 10px; border-top: 1px solid var(--border); }
+.zoom-control > span, .fullscreen-zoom > span { min-width: 30px; color: var(--accent-strong); font-size: .68rem; font-weight: 850; letter-spacing: 0; font-variant-numeric: tabular-nums; }
+.zoom-control input, .fullscreen-zoom input { width: 100%; min-width: 90px; accent-color: var(--accent-strong); cursor: pointer; }
+.zoom-control button, .fullscreen-zoom button { min-height: 30px; padding: 5px 9px; border: 1px solid var(--border); border-radius: 9px; background: var(--surface-2); color: var(--muted); font-size: .64rem; font-weight: 800; }
+.zoom-control button.is-active, .fullscreen-zoom button.is-active { border-color: color-mix(in srgb, var(--accent) 48%, var(--border)); color: var(--accent-strong); }
+.fullscreen-zoom { min-width: min(250px, 28vw); }
+.fullscreen-zoom button { border-color: rgba(255,255,255,.17); background: rgba(255,255,255,.08); color: rgba(255,255,255,.7); }
 .quality-meter { height: 6px; overflow: hidden; border-radius: 99px; background: var(--border); }
 .quality-meter i { display: block; height: 100%; border-radius: inherit; background: linear-gradient(90deg, #ffbe50, var(--accent)); transition: width .25s ease; }
 .import-summary { display: flex; align-items: center; justify-content: center; gap: 7px; margin-top: 12px; color: var(--muted); font-size: .74rem; }
@@ -211,7 +219,7 @@ button:active:not(:disabled) { transform: translateY(1px) scale(.975) !important
   .receiver-controls > button { flex: 1; } .camera-shell { min-height: 62vh; } .qr-stage { padding: 15px; }
   .receive-methods button { justify-content: center; } .screenshot-zone { min-height: 250px; }
   .camera-fullscreen .fullscreen-hud { align-items: stretch; flex-direction: column; } .fullscreen-actions { justify-content: space-between; } .fullscreen-actions button { flex: 1; }
-  .calibration-card { grid-template-columns: 1fr; gap: 9px; } .calibration-card > div:last-child { justify-content: space-between; }
+  .calibration-card { grid-template-columns: 1fr; gap: 9px; } .camera-metrics { justify-content: space-between; }
   .split-controls, .sender-actions { align-items: stretch; } .sender-actions { flex-direction: column-reverse; } .awake-badge { justify-content: center; }
   .receive-metrics { display: block; } .receive-metrics small:last-child { text-align: left; }
 }
