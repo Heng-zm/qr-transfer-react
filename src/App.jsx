@@ -33,7 +33,7 @@ export default function App() {
       <header className="topbar">
         <div className="brand-group">
           <div className="brand-mark" aria-hidden="true"><span /><span /><span /></div>
-          <div><h1>BeamQR</h1><p>Offline transfer by QR.</p></div>
+          <h1>BeamQR</h1>
         </div>
         <button className="icon-button" onClick={() => setTheme((current) => current === 'dark' ? 'light' : 'dark')} aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`} title={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}>
           <Icon name={theme === 'dark' ? 'sun' : 'moon'} />
@@ -41,21 +41,16 @@ export default function App() {
       </header>
 
       <section className="hero-copy">
-        <div className="eyebrow"><span className="status-dot" /> 100% OFFLINE</div>
         <h2>Send files through the camera.</h2>
-        <p>No accounts, cloud, cables, or pairing.</p>
       </section>
 
-      <div className="trust-row" aria-label="Privacy features"><span>Local only</span><span>Missed-frame recovery</span><span>SHA-256 integrity</span></div>
-
       <nav className="main-tabs" aria-label="Transfer mode">
-        <button className={tab === 'send' ? 'active' : ''} onClick={() => setTab('send')} aria-pressed={tab === 'send'}><Icon name="send" /><span><strong>Send</strong><small>Create codes</small></span></button>
-        <button className={tab === 'receive' ? 'active' : ''} onClick={() => setTab('receive')} aria-pressed={tab === 'receive'}><Icon name="receive" /><span><strong>Receive</strong><small>Scan codes</small></span></button>
+        <button className={tab === 'send' ? 'active' : ''} onClick={() => setTab('send')} aria-pressed={tab === 'send'}><Icon name="send" /><strong>Send</strong></button>
+        <button className={tab === 'receive' ? 'active' : ''} onClick={() => setTab('receive')} aria-pressed={tab === 'receive'}><Icon name="receive" /><strong>Receive</strong></button>
       </nav>
 
       <div className="content-enter" hidden={tab !== 'send'}><Sender /></div>
       <div className="content-enter" hidden={tab !== 'receive'}><Receiver active={tab === 'receive'} /></div>
-      <footer><span className="footer-mark">B</span> BeamQR · Offline by design</footer>
     </main>
   )
 }
