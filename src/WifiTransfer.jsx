@@ -35,17 +35,17 @@ function readPairCode(value) {
 
 function createLocalPeer() {
   if (!window.RTCPeerConnection) throw new Error('Wi-Fi transfer is not supported by this browser.')
-  return new Peer({
-    // Host candidates keep file traffic direct instead of using a relay.
-    config: { iceServers: [] },
-    debug: 0,
-  })
+  // PeerJS's STUN-only default improves candidate discovery without relaying file data.
+  return new Peer({ debug: 0 })
 }
 
 function peerErrorMessage(error) {
   if (error?.type === 'peer-unavailable') return 'The sender is no longer waiting. Create a new pairing code.'
   if (error?.type === 'not-open-yet' || error?.message?.includes('Connection is not open')) {
     return 'The Wi-Fi connection closed before the transfer finished. Keep both devices open and try again.'
+  }
+  if (error?.type === 'negotiation-failed' || error?.type === 'connection-closed' || error?.type === 'webrtc') {
+    return 'Could not maintain a direct connection. Confirm both devices are online and on the same Wi-Fi, then try again.'
   }
   if (error?.type === 'network' || error?.type === 'server-error' || error?.type === 'socket-error') {
     return 'Automatic pairing is unavailable. Check internet access on both devices and try again.'

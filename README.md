@@ -81,7 +81,7 @@ For truly offline receiver use, install the app as a PWA while it is available o
 4. Automatic signaling connects the devices; the sender does not scan anything.
 5. The file streams directly over WebRTC and the receiver saves it after SHA-256 verification.
 
-Wi-Fi pairing uses the public PeerServer Cloud for temporary signaling metadata, so both devices need internet access while connecting. File bytes remain peer-to-peer and no STUN or TURN relay is configured. Router client isolation or restrictive browser networking policies can prevent a direct connection.
+Wi-Fi pairing uses the public PeerServer Cloud for temporary signaling metadata, so both devices need internet access while connecting. STUN helps the browsers discover a stable direct route, but no TURN relay is configured and file bytes remain peer-to-peer. Router client isolation or restrictive browser networking policies can still prevent a direct connection.
 
 ## Practical limits
 
