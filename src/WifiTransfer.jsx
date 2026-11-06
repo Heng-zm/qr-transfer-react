@@ -7,9 +7,15 @@ import { formatBytes } from './protocol.js'
 const CHUNK_SIZE = 32 * 1024
 const HIGH_WATER_MARK = 4 * 1024 * 1024
 const LOW_WATER_MARK = 1024 * 1024
-const PAIR_PREFIX = 'BWP1:'
+const PAIR_PREFIX_V1 = 'BWP1:'
+const PAIR_PREFIX_V2 = 'BWP2:'
+const PAIR_PREFIX = PAIR_PREFIX_V2
+const CONNECT_TIMEOUT_MS = 20000
+const ACK_TIMEOUT_MS = 30000
+const MAX_WIFI_BYTES = 2 * 1024 * 1024 * 1024
 
 async function checksum(bytes) {
+  if (!globalThis.crypto?.subtle) throw new Error('SHA-256 verification requires HTTPS or localhost.')
   const digest = await crypto.subtle.digest('SHA-256', bytes)
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
 }
@@ -25,12 +31,24 @@ function createPairCode(peerId, secret) {
 }
 
 function readPairCode(value) {
-  if (!value?.startsWith(PAIR_PREFIX) || value.length > 512) throw new Error('Not a BeamQR Wi-Fi code.')
+  if (!value || value.length > 512) throw new Error('Not a BeamQR Wi-Fi code.')
+  let prefix
+  let serialization
+  if (value.startsWith(PAIR_PREFIX_V2)) {
+    prefix = PAIR_PREFIX_V2
+    serialization = 'raw'
+  } else if (value.startsWith(PAIR_PREFIX_V1)) {
+    prefix = PAIR_PREFIX_V1
+    serialization = 'raw'
+  } else {
+    throw new Error('Not a BeamQR Wi-Fi code.')
+  }
   const separator = value.lastIndexOf(':')
-  const peerId = decodeURIComponent(value.slice(PAIR_PREFIX.length, separator))
+  if (separator < prefix.length) throw new Error('This Wi-Fi pairing code is invalid.')
+  const peerId = decodeURIComponent(value.slice(prefix.length, separator))
   const secret = value.slice(separator + 1)
   if (!peerId || !/^[a-f0-9]{32}$/.test(secret)) throw new Error('This Wi-Fi pairing code is invalid.')
-  return { peerId, secret }
+  return { peerId, secret, serialization }
 }
 
 function createLocalPeer() {
@@ -87,6 +105,44 @@ async function toBytes(data) {
   return null
 }
 
+function isControlMessage(message) {
+  return Boolean(message) &&
+    typeof message === 'object' &&
+    !ArrayBuffer.isView(message) &&
+    !(message instanceof ArrayBuffer) &&
+    !(message instanceof Blob)
+}
+
+// Raw channels only accept strings and buffers; binary channels need plain objects.
+function controlMessage(connection, message) {
+  return connection.serialization === 'raw' ? JSON.stringify(message) : message
+}
+
+function waitForAck(connection, hash, timeoutMs = ACK_TIMEOUT_MS) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => finish(new Error('The receiver did not confirm the transfer.')), timeoutMs)
+    function onData(data) {
+      let message = data
+      if (typeof data === 'string') {
+        try { message = JSON.parse(data) } catch { return }
+      }
+      if (isControlMessage(message) && message.t === 'ack' && message.hash === hash) finish()
+    }
+    function onClose() {
+      finish(new Error('The connection closed before the receiver confirmed the transfer.'))
+    }
+    function finish(error) {
+      clearTimeout(timer)
+      connection.off('data', onData)
+      connection.off('close', onClose)
+      if (error) reject(error)
+      else resolve()
+    }
+    connection.on('data', onData)
+    connection.on('close', onClose)
+  })
+}
+
 function WifiIcon({ name, size = 22 }) {
   const paths = {
     send: <><path d="M12 19V5" /><path d="m6 11 6-6 6 6" /><path d="M5 19h14" /></>,
@@ -127,7 +183,7 @@ function PairScanner({ onCode }) {
         const controls = await reader.decodeFromConstraints({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } }, videoRef.current, (result) => {
           if (!result || handledRef.current) return
           const value = result.getText()
-          if (!value?.startsWith(PAIR_PREFIX)) return
+          if (!value || (!value.startsWith(PAIR_PREFIX_V2) && !value.startsWith(PAIR_PREFIX_V1))) return
           handledRef.current = true
           controlsRef.current?.stop()
           onCodeRef.current(value)
@@ -151,6 +207,12 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
   const statsRef = useRef({ startedAt: 0, lastUpdate: 0 })
   const pairCardRef = useRef(null)
   const sharedPairHandledRef = useRef('')
+  const completedRef = useRef(false)
+  const receiveDoneRef = useRef(false)
+  const incomingQueueRef = useRef(Promise.resolve())
+  const connectTimerRef = useRef(null)
+  const linkTimerRef = useRef(null)
+  const sessionRef = useRef(0)
   const [role, setRole] = useState('send')
   const [file, setFile] = useState(null)
   const [stage, setStage] = useState('idle')
@@ -166,6 +228,8 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
   const [linkShared, setLinkShared] = useState('')
 
   function closeConnection() {
+    clearTimeout(connectTimerRef.current)
+    connectTimerRef.current = null
     try { connectionRef.current?.close() } catch {}
     try { peerRef.current?.destroy() } catch {}
     connectionRef.current = null
@@ -173,26 +237,30 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
   }
 
   function reset(nextRole = role) {
+    sessionRef.current += 1
     closeConnection()
     payloadRef.current = null
     receiveRef.current = null
+    completedRef.current = false
+    receiveDoneRef.current = false
+    incomingQueueRef.current = Promise.resolve()
+    sharedPairHandledRef.current = ''
     statsRef.current = { startedAt: 0, lastUpdate: 0 }
+    clearTimeout(linkTimerRef.current)
     setRole(nextRole); setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setTransferStats({ bytes: 0, total: 0, speed: 0 }); setResult(null); setError(''); setBusy(false); setImportingPair(false); setPairDragging(false); setLinkShared('')
   }
 
-  useEffect(() => () => closeConnection(), [])
+  useEffect(() => () => { sessionRef.current += 1; closeConnection(); clearTimeout(linkTimerRef.current) }, [])
   useEffect(() => {
-    if (!active) {
-      closeConnection()
-      statsRef.current = { startedAt: 0, lastUpdate: 0 }
-      setStage('idle'); setPairCode(''); setStatus('Ready'); setProgress(0); setTransferStats({ bytes: 0, total: 0, speed: 0 }); setResult(null); setError(''); setImportingPair(false); setPairDragging(false); setLinkShared('')
-    }
+    if (active) return
+    reset()
   }, [active])
 
   function handleConnectionFailure(cause) {
     setError(peerErrorMessage(cause))
     setStatus('Connection failed')
     setStage('failed')
+    setBusy(false)
   }
 
   function startTransferStats(total) {
@@ -214,17 +282,22 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
   async function sendPayload(connection) {
     const payload = payloadRef.current
     if (!payload) return
+    completedRef.current = false
     setStage('sending'); setStatus('Sending over Wi-Fi…'); startTransferStats(payload.bytes.length)
-    sendWhenOpen(connection, JSON.stringify({ t: 'meta', name: payload.name, mime: payload.mime, size: payload.bytes.length, hash: payload.hash }))
+    sendWhenOpen(connection, controlMessage(connection, { t: 'meta', name: payload.name, mime: payload.mime, size: payload.bytes.length, hash: payload.hash }))
     for (let offset = 0; offset < payload.bytes.length; offset += CHUNK_SIZE) {
       await waitForSendBuffer(connection)
       sendWhenOpen(connection, payload.bytes.subarray(offset, offset + CHUNK_SIZE))
       updateTransferStats(Math.min(payload.bytes.length, offset + CHUNK_SIZE), payload.bytes.length)
     }
     await waitForSendBuffer(connection)
-    sendWhenOpen(connection, JSON.stringify({ t: 'done' }))
+    const acknowledged = waitForAck(connection, payload.hash)
+    sendWhenOpen(connection, controlMessage(connection, { t: 'done' }))
     updateTransferStats(payload.bytes.length, payload.bytes.length, true)
-    setStage('complete'); setStatus('Sent successfully')
+    setStatus('Waiting for the receiver to verify…')
+    await acknowledged
+    completedRef.current = true
+    setStage('complete'); setStatus('Sent successfully · receiver verified')
   }
 
   function prepareSenderConnection(connection, secret) {
@@ -233,14 +306,29 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
       return
     }
     connectionRef.current = connection
-    connection.on('open', () => sendPayload(connection).catch((cause) => {
-      if (connectionRef.current === connection) handleConnectionFailure(cause)
-    }))
-    connection.on('error', handleConnectionFailure)
+    connection.on('open', () => {
+      if (connectionRef.current !== connection) return
+      sendPayload(connection).catch((cause) => {
+        if (connectionRef.current === connection) handleConnectionFailure(cause)
+      })
+    })
+    connection.on('error', (cause) => {
+      if (connectionRef.current !== connection) return
+      handleConnectionFailure(cause)
+    })
+    connection.on('close', () => {
+      if (connectionRef.current !== connection || completedRef.current) return
+      connectionRef.current = null
+      handleConnectionFailure(new Error('The Wi-Fi connection closed before the transfer finished.'))
+    })
   }
 
   async function createTransfer() {
     if (!file) return
+    if (file.size > MAX_WIFI_BYTES) { setError('That file is over the 2 GB limit.'); return }
+    closeConnection()
+    sessionRef.current += 1
+    completedRef.current = false
     setBusy(true); setError(''); setStatus('Preparing…')
     try {
       const bytes = new Uint8Array(await file.arrayBuffer())
@@ -248,9 +336,10 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
       const secret = createPairSecret()
       const peer = createLocalPeer()
       peerRef.current = peer
-      peer.on('connection', (connection) => prepareSenderConnection(connection, secret))
-      peer.on('error', handleConnectionFailure)
+      peer.on('connection', (connection) => { if (peerRef.current === peer) prepareSenderConnection(connection, secret) })
+      peer.on('error', (cause) => { if (peerRef.current === peer) handleConnectionFailure(cause) })
       peer.on('open', (peerId) => {
+        if (peerRef.current !== peer) return
         setPairCode(createPairCode(peerId, secret))
         setStage('waiting')
         setStatus('Receiver scans this code once')
@@ -263,30 +352,40 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
     }
   }
 
-  async function receiveData(data) {
+  async function receiveData(data, session = sessionRef.current) {
+    if (session !== sessionRef.current) return
     let message = data
     if (typeof data === 'string') {
       try { message = JSON.parse(data) }
       catch { throw new Error('Received invalid transfer metadata.') }
     }
-    if (message && typeof message === 'object' && !ArrayBuffer.isView(message) && !(message instanceof ArrayBuffer) && !(message instanceof Blob)) {
+    if (isControlMessage(message)) {
       if (message.t === 'meta') {
-        if (!Number.isSafeInteger(message.size) || message.size < 0) throw new Error('The incoming file size is invalid.')
+        if (!Number.isSafeInteger(message.size) || message.size < 0 || message.size > MAX_WIFI_BYTES) throw new Error('The incoming file size is invalid.')
         receiveRef.current = { ...message, chunks: [], received: 0 }
-        setStage('receiving'); setStatus(`Receiving ${message.name}`); startTransferStats(message.size)
+        receiveDoneRef.current = false
+        setStage('receiving'); setStatus(`Receiving ${message.name || 'file'}`); startTransferStats(message.size)
       } else if (message.t === 'done' && receiveRef.current) {
         const incoming = receiveRef.current
         const bytes = new Uint8Array(incoming.received)
         let offset = 0
         for (const chunk of incoming.chunks) { bytes.set(chunk, offset); offset += chunk.length }
         if (bytes.length !== incoming.size || await checksum(bytes) !== incoming.hash) throw new Error('File verification failed.')
+        if (session !== sessionRef.current) return
+        receiveRef.current = null
+        receiveDoneRef.current = true
         updateTransferStats(incoming.received, incoming.size, true)
         setResult({ name: incoming.name, mime: incoming.mime, bytes }); setStage('complete'); setStatus('Received successfully')
+        const connection = connectionRef.current
+        if (connection) {
+          try { sendWhenOpen(connection, controlMessage(connection, { t: 'ack', hash: incoming.hash })) } catch {}
+        }
       }
       return
     }
     const incoming = receiveRef.current
     const chunk = await toBytes(data)
+    if (session !== sessionRef.current) return
     if (!incoming || !chunk) return
     incoming.chunks.push(chunk); incoming.received += chunk.length
     if (incoming.received > incoming.size) throw new Error('Received more data than expected.')
@@ -294,18 +393,60 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
   }
 
   function joinTransfer(value) {
+    sessionRef.current += 1
+    const session = sessionRef.current
+    closeConnection()
+    receiveRef.current = null
+    receiveDoneRef.current = false
+    incomingQueueRef.current = Promise.resolve()
+    statsRef.current = { startedAt: 0, lastUpdate: 0 }
+    setRole('receive'); setResult(null); setProgress(0); setTransferStats({ bytes: 0, total: 0, speed: 0 }); setLinkShared('')
     setError(''); setStage('connecting'); setStatus('Connecting automatically…')
+
+    let parsed
+    try { parsed = readPairCode(value) }
+    catch (cause) { handleConnectionFailure(cause); return }
+
     try {
-      const { peerId, secret } = readPairCode(value)
+      const { peerId, secret, serialization } = parsed
       const peer = createLocalPeer()
       peerRef.current = peer
-      peer.on('error', handleConnectionFailure)
+      connectTimerRef.current = setTimeout(() => {
+        if (session !== sessionRef.current) return
+        handleConnectionFailure(new Error('The sender did not respond. Create a new pairing code.'))
+        closeConnection()
+      }, CONNECT_TIMEOUT_MS)
+      peer.on('error', (cause) => {
+        if (peerRef.current !== peer) return
+        clearTimeout(connectTimerRef.current); connectTimerRef.current = null
+        handleConnectionFailure(cause)
+      })
       peer.on('open', () => {
-        const connection = peer.connect(peerId, { reliable: true, metadata: { secret }, serialization: 'raw' })
+        if (peerRef.current !== peer) return
+        const connection = peer.connect(peerId, { reliable: true, metadata: { secret }, serialization })
         connectionRef.current = connection
-        connection.on('open', () => { setStage('receiving'); setStatus('Connected · waiting for file') })
-        connection.on('data', (data) => receiveData(data).catch((cause) => { handleConnectionFailure(cause); closeConnection() }))
-        connection.on('error', handleConnectionFailure)
+        connection.on('open', () => {
+          if (connectionRef.current !== connection) return
+          clearTimeout(connectTimerRef.current); connectTimerRef.current = null
+          setStage('receiving'); setStatus('Connected · waiting for file')
+        })
+        connection.on('data', (data) => {
+          incomingQueueRef.current = incomingQueueRef.current
+            .then(() => receiveData(data, session))
+            .catch((cause) => {
+              if (session !== sessionRef.current) return
+              handleConnectionFailure(cause); closeConnection()
+            })
+        })
+        connection.on('error', (cause) => {
+          if (connectionRef.current !== connection || session !== sessionRef.current) return
+          handleConnectionFailure(cause)
+        })
+        connection.on('close', () => {
+          if (connectionRef.current !== connection || receiveDoneRef.current || session !== sessionRef.current) return
+          connectionRef.current = null
+          handleConnectionFailure(new Error('The sender closed the connection before the transfer finished.'))
+        })
       })
     } catch (cause) {
       handleConnectionFailure(cause)
@@ -368,16 +509,32 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
   async function shareDownloadLink() {
     const url = new URL(window.location.href)
     url.hash = new URLSearchParams({ wifi: pairCode }).toString()
+    clearTimeout(linkTimerRef.current)
     try {
-      const useShareSheet = Boolean(navigator.share)
-      if (useShareSheet) await navigator.share({ title: 'BeamQR file', text: file ? `Download ${file.name}` : 'Open this BeamQR transfer', url: url.toString() })
-      else await navigator.clipboard.writeText(url.toString())
-      setLinkShared(useShareSheet ? 'Shared' : 'Link copied')
-      setTimeout(() => setLinkShared(''), 1800)
-    } catch (cause) {
-      if (cause?.name !== 'AbortError') setError('Could not share the link. Save the QR instead.')
+      if (navigator.share) {
+        try {
+          await navigator.share({ title: 'BeamQR file', text: file ? `Download ${file.name}` : 'Open this BeamQR transfer', url: url.toString() })
+          setLinkShared('Shared')
+          linkTimerRef.current = setTimeout(() => setLinkShared(''), 1800)
+          return
+        } catch (cause) {
+          if (cause?.name === 'AbortError') return
+        }
+      }
+      await navigator.clipboard.writeText(url.toString())
+      setLinkShared('Link copied')
+      linkTimerRef.current = setTimeout(() => setLinkShared(''), 1800)
+    } catch {
+      setError('Could not share the link. Save the QR instead.')
     }
   }
+
+  useEffect(() => {
+    if (stage !== 'connecting' && stage !== 'sending' && stage !== 'receiving') return
+    const warn = (event) => { event.preventDefault(); event.returnValue = '' }
+    window.addEventListener('beforeunload', warn)
+    return () => window.removeEventListener('beforeunload', warn)
+  }, [stage])
 
   function saveResult() {
     if (!result) return
@@ -388,13 +545,13 @@ export default function WifiTransfer({ active = true, sharedPairCode = '', onSha
 
   return (
     <section className="panel wifi-panel">
-      <div className="panel-heading wifi-heading"><div><div className="step-label">DIRECT WI-FI</div><h2>Direct transfer</h2><p>One scan. Same Wi-Fi. No size cap.</p></div>{stage !== 'idle' && <button className="ghost-button compact" onClick={() => reset()}>Start over</button>}</div>
+      <div className="panel-heading wifi-heading"><div><div className="step-label">DIRECT WI-FI</div><h2>Direct transfer</h2><p>One scan. Same Wi-Fi. Up to 2 GB.</p></div>{stage !== 'idle' && <button className="ghost-button compact" onClick={() => reset()}>Start over</button>}</div>
       <div className="segmented wifi-role-switch">
         <button className={role === 'send' ? 'active' : ''} onClick={() => reset('send')} aria-pressed={role === 'send'}><WifiIcon name="send" /><strong>Send</strong></button>
         <button className={role === 'receive' ? 'active' : ''} onClick={() => reset('receive')} aria-pressed={role === 'receive'}><WifiIcon name="receive" /><strong>Receive</strong></button>
       </div>
 
-      {stage === 'idle' && role === 'send' && <div className="wifi-action-view"><label className={`drop-zone wifi-file ${file ? 'has-file' : ''}`}><input type="file" onChange={(event) => { setFile(event.target.files?.[0] || null); setError('') }} /><span className="wifi-action-icon"><WifiIcon name="file" size={27} /></span><strong>{file ? file.name : 'Choose file'}</strong><small>{file ? `${formatBytes(file.size)} · Tap to replace` : 'Any size'}</small></label><button className="primary-button full wifi-cta" disabled={!file || busy} onClick={createTransfer}>{busy ? <><span className="spinner" /> Preparing</> : <><WifiIcon name="link" /> Create QR</>}</button></div>}
+      {stage === 'idle' && role === 'send' && <div className="wifi-action-view"><label className={`drop-zone wifi-file ${file ? 'has-file' : ''}`}><input type="file" onChange={(event) => { setFile(event.target.files?.[0] || null); setError('') }} /><span className="wifi-action-icon"><WifiIcon name="file" size={27} /></span><strong>{file ? file.name : 'Choose file'}</strong><small>{file ? `${formatBytes(file.size)} · Tap to replace` : 'Up to 2 GB'}</small></label><button className="primary-button full wifi-cta" disabled={!file || busy} onClick={createTransfer}>{busy ? <><span className="spinner" /> Preparing</> : <><WifiIcon name="link" /> Create QR</>}</button></div>}
       {stage === 'idle' && role === 'receive' && <div className={`wifi-receive-ready ${pairDragging ? 'is-dragging' : ''}`} onDragEnter={(event) => { event.preventDefault(); setPairDragging(true) }} onDragOver={(event) => event.preventDefault()} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setPairDragging(false) }} onDrop={dropPairImage}><span className="wifi-radar"><WifiIcon name="scan" size={30} /></span><div><strong>Receive a file</strong><small>Scan, upload, or drop the sender QR.</small></div><div className="wifi-receive-actions"><button className="primary-button wifi-cta" disabled={importingPair} onClick={() => { setStage('scan-sender'); setStatus('Scan the sender code') }}><WifiIcon name="scan" /> Camera</button><label className={`secondary-button wifi-cta wifi-upload-button ${importingPair ? 'is-loading' : ''}`}><input type="file" accept="image/*" disabled={importingPair} onChange={importPairImage} />{importingPair ? <><span className="spinner" /> Reading</> : <><WifiIcon name="image" /> Upload QR</>}</label></div></div>}
 
       {stage === 'waiting' && <div className="wifi-pair-code" ref={pairCardRef}><div className="wifi-state-heading"><span className="wifi-live-dot" /><div><strong>Ready to connect</strong><small>Receiver scans the QR or opens your link.</small></div></div>{file && <div className="wifi-pair-file"><WifiIcon name="file" size={18} /><span><strong>{file.name}</strong><small>{formatBytes(file.size)}</small></span></div>}<div className="wifi-qr-shell"><QRCodeView value={pairCode} size={340} /></div><div className="wifi-pair-actions"><button className="secondary-button" onClick={savePairQr}><WifiIcon name="download" size={17} /> Save QR</button><button className="secondary-button" onClick={shareDownloadLink}><WifiIcon name={linkShared ? 'check' : 'link'} size={17} /> {linkShared || 'Share link'}</button></div><small className="wifi-link-note">Keep this page open until the download finishes.</small></div>}

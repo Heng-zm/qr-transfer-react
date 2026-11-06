@@ -88,7 +88,7 @@ export default function QRCodeView({ value, size = 320 }) {
       <span className="qr-corner top-right" />
       <span className="qr-corner bottom-left" />
       <span className="qr-corner bottom-right" />
-      <canvas ref={canvasRef} className="qr-canvas" aria-label="BeamQR transfer code" />
+      <canvas ref={canvasRef} className="qr-canvas" role="img" aria-label="BeamQR transfer code" />
     </div>
   )
 }

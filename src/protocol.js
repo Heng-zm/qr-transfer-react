@@ -4,8 +4,9 @@ const CURRENT_VERSION = 2
 const LEGACY_VERSION = 1
 const LEGACY_CHUNK_SIZE = 650
 const DATA_CHUNK_BYTES = 480
+const DATA_CHUNK_BASE64 = Math.ceil(DATA_CHUNK_BYTES / 3) * 4
 const RECOVERY_GROUP_SIZE = 8
-const MAX_TRANSFER_BYTES = 2 * 1024 * 1024
+export const MAX_TRANSFER_BYTES = 2 * 1024 * 1024
 const MAX_FRAMES = 10000
 
 function bytesToBase64(bytes) {
@@ -23,6 +24,7 @@ function base64ToBytes(base64) {
 }
 
 async function sha256Hex(bytes) {
+  if (!globalThis.crypto?.subtle) throw new Error('SHA-256 verification requires HTTPS or localhost.')
   const digest = await crypto.subtle.digest('SHA-256', bytes)
   return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('')
 }
@@ -61,6 +63,7 @@ function buildSmartSchedule(dataFrames, recoveryFrames) {
 }
 
 export async function createTransfer({ kind, name, mime, bytes }) {
+  if (bytes.length > MAX_TRANSFER_BYTES) throw new Error('This content is over the 2 MB QR limit.')
   const compressed = pako.deflate(bytes)
   const checksum = await sha256Hex(bytes)
   const id = randomId()
@@ -117,6 +120,7 @@ export function parseFrame(text) {
 
   if (data.ft === 'd') {
     if (!Number.isInteger(data.i) || data.i < 0 || data.i >= data.n) return null
+    if (data.c.length > DATA_CHUNK_BASE64) return null
     return data
   }
 
@@ -126,7 +130,8 @@ export function parseFrame(text) {
       !Number.isInteger(data.s) || data.s !== data.g * RECOVERY_GROUP_SIZE || data.s >= data.n ||
       !Array.isArray(data.ls) || data.ls.length < 1 || data.ls.length > RECOVERY_GROUP_SIZE ||
       data.s + data.ls.length > data.n ||
-      data.ls.some((length) => !Number.isInteger(length) || length < 1 || length > DATA_CHUNK_BYTES)
+      data.ls.some((length) => !Number.isInteger(length) || length < 1 || length > DATA_CHUNK_BYTES) ||
+      data.c.length > DATA_CHUNK_BASE64
     ) return null
     return data
   }

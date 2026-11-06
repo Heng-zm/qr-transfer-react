@@ -48,8 +48,13 @@ export default function Receiver({ active = true }) {
   const nativeScanBusyRef = useRef(false)
   const nativeLastScanAtRef = useRef(0)
   const nativeMissStreakRef = useRef(0)
+  const nativeScanCostRef = useRef(0)
   const smartScanCycleRef = useRef(0)
   const smartCropAvailableRef = useRef(true)
+  const lastQrRegionRef = useRef(null)
+  const lastCalibrationAtRef = useRef(0)
+  const lastRateAtRef = useRef(0)
+  const lastTrackingPaintRef = useRef(0)
   const [scanning, setScanning] = useState(false)
   const [status, setStatus] = useState('Ready to scan')
   const [progress, setProgress] = useState({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] })
@@ -71,7 +76,7 @@ export default function Receiver({ active = true }) {
   const [receiveMode, setReceiveMode] = useState('camera')
   const [importDragging, setImportDragging] = useState(false)
   const [importProgress, setImportProgress] = useState({ current: 0, total: 0 })
-  const [nativeFastScan, setNativeFastScan] = useState(false)
+  const [visionMode, setVisionMode] = useState(null)
   const [fullScreen, setFullScreen] = useState(false)
 
   useEffect(() => () => {
@@ -102,7 +107,12 @@ export default function Receiver({ active = true }) {
   }, [])
 
   useEffect(() => {
-    const resetTrackerViewport = () => { trackingHistoryRef.current = null; setTracking(null) }
+    const resetTrackerViewport = () => {
+      trackingHistoryRef.current = null
+      lastQrRegionRef.current = null
+      lastTrackingPaintRef.current = 0
+      setTracking(null)
+    }
     window.addEventListener('resize', resetTrackerViewport)
     window.addEventListener('orientationchange', resetTrackerViewport)
     return () => {
@@ -120,14 +130,15 @@ export default function Receiver({ active = true }) {
   }
 
   function cancelNativeScanLoop() { try { nativeScanCancelRef.current?.() } catch {} nativeScanCancelRef.current = null }
-  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelNativeScanLoop(); nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; nativeMissStreakRef.current = 0; smartScanCycleRef.current = 0; smartCropAvailableRef.current = true; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setZoomRange(null); setZoomLevel(1); setNativeFastScan(false); setScanning(false) }
-  function resetTransfer() { exitCameraFullscreen(); autoZoomEnabledRef.current = true; setAutoZoomEnabled(true); importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; scanRateStartCountRef.current = 0; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }) }
+  function stopScanner() { scanSessionRef.current += 1; try { controlsRef.current?.stop() } catch {} controlsRef.current = null; cancelNativeScanLoop(); nativeScanBusyRef.current = false; nativeLastScanAtRef.current = 0; nativeMissStreakRef.current = 0; nativeScanCostRef.current = 0; smartScanCycleRef.current = 0; smartCropAvailableRef.current = true; lastTrackingPaintRef.current = 0; clearTimeout(trackingTimerRef.current); trackingHistoryRef.current = null; videoTrackRef.current = null; zoomCapabilityRef.current = null; lastZoomAtRef.current = 0; setTracking(null); setTorchAvailable(false); setTorchOn(false); setAutoZoom(0); setZoomRange(null); setZoomLevel(1); setVisionMode(null); setScanning(false) }
+  function resetTransfer() { exitCameraFullscreen(); autoZoomEnabledRef.current = true; setAutoZoomEnabled(true); importSessionRef.current += 1; framesRef.current = new Map(); activeIdRef.current = null; rebuildingRef.current = false; firstFrameAtRef.current = 0; scanRateStartCountRef.current = 0; lastRateAtRef.current = 0; lastCalibrationAtRef.current = 0; lastTrackingPaintRef.current = 0; lastQrRegionRef.current = null; trackingHistoryRef.current = null; qualitySamplesRef.current = []; setProgress({ received: 0, total: 0, direct: 0, recovery: 0, recoveredIndices: [] }); setResult(null); setError(''); setStatus('Ready to scan'); setCopied(false); setTracking(null); setScanRate(0); setAutoZoom(0); setCameraQuality(null); setImportSummary(''); setImporting(false); setImportProgress({ current: 0, total: 0 }) }
 
   function pauseScanner() {
     const hasFrames = framesRef.current.size > 0
     stopScanner()
     firstFrameAtRef.current = 0
     scanRateStartCountRef.current = 0
+    lastRateAtRef.current = 0
     setScanRate(0)
     setStatus(hasFrames ? 'Paused · progress saved' : 'Ready to scan')
   }
@@ -214,13 +225,25 @@ export default function Receiver({ active = true }) {
     const rawPoints = scanResult.getResultPoints?.() || []
     if (!video || rawPoints.length < 3 || !video.videoWidth || !video.videoHeight) return
 
+    const now = performance.now()
     const point = (value) => ({ x: value.getX?.() ?? value.x, y: value.getY?.() ?? value.y })
     const bottomLeft = point(rawPoints[0])
     const topLeft = point(rawPoints[1])
     const topRight = point(rawPoints[2])
     if (![bottomLeft, topLeft, topRight].every(({ x, y }) => Number.isFinite(x) && Number.isFinite(y))) return
     const bottomRight = { x: bottomLeft.x + topRight.x - topLeft.x, y: bottomLeft.y + topRight.y - topLeft.y }
-    if (valid) zoomToQr([topLeft, topRight, bottomRight, bottomLeft], video)
+    if (valid) {
+      zoomToQr([topLeft, topRight, bottomRight, bottomLeft], video)
+      const xs = [topLeft.x, topRight.x, bottomRight.x, bottomLeft.x]
+      const ys = [topLeft.y, topRight.y, bottomRight.y, bottomLeft.y]
+      const minX = Math.min(...xs)
+      const maxX = Math.max(...xs)
+      const minY = Math.min(...ys)
+      const maxY = Math.max(...ys)
+      if (maxX > minX && maxY > minY) {
+        lastQrRegionRef.current = { x: minX, y: minY, width: maxX - minX, height: maxY - minY, at: now }
+      }
+    }
     const width = video.clientWidth
     const height = video.clientHeight
     const scale = Math.max(width / video.videoWidth, height / video.videoHeight)
@@ -245,10 +268,20 @@ export default function Receiver({ active = true }) {
     const label = valid ? (confidence >= 85 ? 'HIGH CONFIDENCE' : confidence >= 68 ? 'LOCKED' : 'ACQUIRING') : 'OTHER QR'
 
     trackingHistoryRef.current = { points: smoothed, width, height, valid, hits }
-    if (valid) updateCalibration(confidence)
-    setTracking({ points: smoothed.map(({ x, y }) => `${x},${y}`).join(' '), width, height, valid, confidence, label })
+    if (valid && now - lastCalibrationAtRef.current >= 420) {
+      lastCalibrationAtRef.current = now
+      updateCalibration(confidence)
+    }
+    if (!lastTrackingPaintRef.current || now - lastTrackingPaintRef.current >= 60) {
+      lastTrackingPaintRef.current = now
+      setTracking({ points: smoothed.map(({ x, y }) => `${x},${y}`).join(' '), width, height, valid, confidence, label })
+    }
     clearTimeout(trackingTimerRef.current)
-    trackingTimerRef.current = setTimeout(() => { trackingHistoryRef.current = null; setTracking(null) }, 680)
+    trackingTimerRef.current = setTimeout(() => {
+      trackingHistoryRef.current = null
+      lastTrackingPaintRef.current = 0
+      setTracking(null)
+    }, 720)
   }
 
   async function processDecodedResult(scanResult, showTracking = false) {
@@ -265,9 +298,16 @@ export default function Receiver({ active = true }) {
     framesRef.current.set(key, frame)
     const transferStatus = analyzeTransferFrames(framesRef.current)
     const now = performance.now()
-    if (!firstFrameAtRef.current) { firstFrameAtRef.current = now; scanRateStartCountRef.current = transferStatus.direct }
+    if (!firstFrameAtRef.current) {
+      firstFrameAtRef.current = now
+      scanRateStartCountRef.current = transferStatus.direct
+      lastRateAtRef.current = now
+    }
     const framesSinceRateStart = transferStatus.direct - scanRateStartCountRef.current
-    if (framesSinceRateStart > 0) setScanRate(framesSinceRateStart / Math.max(.25, (now - firstFrameAtRef.current) / 1000))
+    if (framesSinceRateStart > 0 && now - lastRateAtRef.current >= 450) {
+      lastRateAtRef.current = now
+      setScanRate(framesSinceRateStart / Math.max(.25, (now - firstFrameAtRef.current) / 1000))
+    }
     if (showTracking) navigator.vibrate?.(transferStatus.complete ? [35, 45, 70] : 16)
     setProgress(transferStatus)
     setStatus(transferStatus.recovery > 0 ? `Receiving · ${transferStatus.recovery} recovered` : 'Receiving…')
@@ -296,26 +336,59 @@ export default function Receiver({ active = true }) {
     } catch { return null }
   }
 
-  function createSmartScanSource(video) {
-    if (!video.videoWidth || !video.videoHeight) return null
-    const cropSize = Math.round(Math.min(video.videoWidth, video.videoHeight) * .78)
-    const sourceX = Math.round((video.videoWidth - cropSize) / 2)
-    const sourceY = Math.round((video.videoHeight - cropSize) / 2)
+  function padRegion(region, factor, video) {
+    const width = Math.min(video.videoWidth, Math.max(160, region.width * factor))
+    const height = Math.min(video.videoHeight, Math.max(160, region.height * factor))
+    const centerX = region.x + region.width / 2
+    const centerY = region.y + region.height / 2
+    return {
+      x: Math.max(0, Math.min(video.videoWidth - width, centerX - width / 2)),
+      y: Math.max(0, Math.min(video.videoHeight - height, centerY - height / 2)),
+      width,
+      height,
+    }
+  }
+
+  function centerRegion(video, ratio) {
+    const width = video.videoWidth * ratio
+    const height = video.videoHeight * ratio
+    return { x: (video.videoWidth - width) / 2, y: (video.videoHeight - height) / 2, width, height }
+  }
+
+  // Search with full-frame plus two center scales, then lock onto the last QR
+  // region for fast, stable passes while keeping periodic full-frame coverage.
+  function chooseScanRegion(video, cycle) {
+    const last = lastQrRegionRef.current
+    const locked = last && performance.now() - last.at < 2200
+    if (locked && cycle % 4 !== 0) return padRegion(last, 1.8, video)
+    if (!locked) {
+      if (cycle % 3 === 1) return centerRegion(video, .72)
+      if (cycle % 3 === 2) return centerRegion(video, .9)
+    }
+    return null
+  }
+
+  function createScanSource(video, region) {
+    if (!region) return null
     const canvas = assistCanvasRef.current || document.createElement('canvas')
     assistCanvasRef.current = canvas
-    if (canvas.width !== 640) canvas.width = 640
-    if (canvas.height !== 640) canvas.height = 640
+    const scale = Math.min(3, 720 / Math.max(region.width, region.height))
+    const width = Math.max(1, Math.round(region.width * scale))
+    const height = Math.max(1, Math.round(region.height * scale))
+    if (canvas.width !== width) canvas.width = width
+    if (canvas.height !== height) canvas.height = height
     const context = canvas.getContext('2d', { alpha: false, desynchronized: true })
     if (!context) return null
-    context.drawImage(video, sourceX, sourceY, cropSize, cropSize, 0, 0, 640, 640)
+    context.imageSmoothingEnabled = true
+    try { context.imageSmoothingQuality = 'high' } catch {}
+    context.drawImage(video, region.x, region.y, region.width, region.height, 0, 0, width, height)
     return {
       source: canvas,
-      mapPoint: ({ x, y }) => ({ x: sourceX + x * cropSize / 640, y: sourceY + y * cropSize / 640 }),
+      mapPoint: ({ x, y }) => ({ x: region.x + x * region.width / width, y: region.y + y * region.height / height }),
     }
   }
 
   function startNativeDetection(session, detector) {
-    setNativeFastScan(true)
     const schedule = (scan) => {
       if (session !== scanSessionRef.current) return
       const video = videoRef.current
@@ -330,14 +403,17 @@ export default function Receiver({ active = true }) {
     const scan = async (timestamp) => {
       const video = videoRef.current
       if (session !== scanSessionRef.current) return
-      const scanInterval = trackingHistoryRef.current?.valid ? 52 : 92
+      const targetInterval = trackingHistoryRef.current?.valid ? 52 : 92
+      const scanInterval = Math.max(targetInterval, Math.min(150, Math.round(nativeScanCostRef.current * .9)))
       if (nativeScanBusyRef.current || timestamp - nativeLastScanAtRef.current < scanInterval || !video || video.readyState < 2) { schedule(scan); return }
       nativeScanBusyRef.current = true
       nativeLastScanAtRef.current = timestamp
+      const scanStartedAt = performance.now()
       try {
-        smartScanCycleRef.current += 1
-        const useFocusedPass = smartCropAvailableRef.current && smartScanCycleRef.current % 3 === 0 && !trackingHistoryRef.current
-        let smartSource = useFocusedPass ? createSmartScanSource(video) : null
+        const cycle = smartScanCycleRef.current
+        smartScanCycleRef.current = (cycle + 1) % 12
+        const region = smartCropAvailableRef.current ? chooseScanRegion(video, cycle) : null
+        let smartSource = createScanSource(video, region)
         let detected
         try { detected = await detector.detect(smartSource?.source || video) }
         catch (error) {
@@ -362,9 +438,14 @@ export default function Receiver({ active = true }) {
           await processDecodedResult(adaptedResult, true)
         }
         nativeMissStreakRef.current = decodedAny ? 0 : nativeMissStreakRef.current + 1
-        if (nativeMissStreakRef.current >= 22) { relaxCameraZoom(); nativeMissStreakRef.current = 12 }
+        if (nativeMissStreakRef.current >= 18) { relaxCameraZoom(); nativeMissStreakRef.current = 10 }
       } catch {}
-      finally { nativeScanBusyRef.current = false; schedule(scan) }
+      finally {
+        const cost = performance.now() - scanStartedAt
+        nativeScanCostRef.current = nativeScanCostRef.current ? nativeScanCostRef.current * .82 + cost * .18 : cost
+        nativeScanBusyRef.current = false
+        schedule(scan)
+      }
     }
     schedule(scan)
   }
@@ -432,6 +513,7 @@ export default function Receiver({ active = true }) {
         if (Object.keys(cameraTuning).length) videoTrack.applyConstraints({ advanced: [cameraTuning] }).catch(() => {})
       } catch {}
       setTorchAvailable(supportsTorch)
+      setVisionMode(nativeDetector ? 'native' : 'adaptive')
       setScanning(true); setStatus(framesRef.current.size ? 'Receiving…' : 'Looking for QR codes…')
       if (nativeDetector) startNativeDetection(session, nativeDetector)
     } catch (e) {
@@ -448,12 +530,13 @@ export default function Receiver({ active = true }) {
     }
   }
 
-  async function flipCamera() { const next = cameraFacing === 'environment' ? 'user' : 'environment'; setCameraFacing(next); await startScanner(next, true) }
+  async function flipCamera() { lastQrRegionRef.current = null; lastTrackingPaintRef.current = 0; const next = cameraFacing === 'environment' ? 'user' : 'environment'; setCameraFacing(next); await startScanner(next, true) }
   async function toggleFullscreen() {
     const shell = cameraShellRef.current
     if (!shell) return
     if (fullScreen || getFullscreenElement() === shell) { await exitCameraFullscreen(); return }
     trackingHistoryRef.current = null
+    lastTrackingPaintRef.current = 0
     setTracking(null)
     const requestFullscreen = shell.requestFullscreen || shell.webkitRequestFullscreen
     if (!requestFullscreen) { setFullScreen(true); return }
@@ -490,7 +573,7 @@ export default function Receiver({ active = true }) {
     const importSession = ++importSessionRef.current
     setImporting(true); setImportProgress({ current: 0, total: selected.length }); setError(''); setImportSummary('Reading QR images…')
     const reader = new BrowserQRCodeReader()
-    const counts = { added: 0, recovery: 0, duplicate: 0, invalid: 0, different: 0 }
+    const counts = { added: 0, recovery: 0, duplicate: 0, invalid: 0, different: 0, failed: 0 }
     let completed = false
 
     for (let fileIndex = 0; fileIndex < selected.length; fileIndex += 1) {
@@ -505,13 +588,14 @@ export default function Receiver({ active = true }) {
         const outcome = await processDecodedResult(decoded, false)
         if (outcome in counts) counts[outcome] += 1
         if (outcome === 'complete') { completed = true; break }
+        if (outcome === 'failed') break
       } catch { counts.invalid += 1 }
       finally { URL.revokeObjectURL(url) }
     }
 
     if (importSession !== importSessionRef.current) return
     const accepted = counts.added + counts.recovery
-    setImportSummary(`${accepted} new · ${counts.duplicate} duplicate · ${counts.invalid + counts.different} skipped`)
+    setImportSummary(`${accepted} new · ${counts.duplicate} duplicate · ${counts.invalid + counts.different + counts.failed} skipped`)
     if (!completed) setStatus(accepted ? 'Frames imported · add more or scan' : 'No new BeamQR frames found')
     setImporting(false); setImportProgress({ current: 0, total: 0 })
   }
@@ -573,8 +657,8 @@ export default function Receiver({ active = true }) {
           )}
           {tracking && <><div className={`tracking-badge ${tracking.valid ? '' : 'foreign'}`}><span /> {tracking.label.toLowerCase()} <strong>{tracking.confidence}%</strong></div><div className={`confidence-meter ${tracking.valid ? '' : 'foreign'}`}><i style={{ width: `${tracking.confidence}%` }} /></div></>}
           {autoZoom > 0 && <div className="auto-zoom-badge">AUTO ZOOM <strong>{autoZoom.toFixed(1)}×</strong></div>}
-          {scanning && <><div className="vision-assist-badge"><span>✦</span> SMART VISION</div><button type="button" className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullScreen ? 'Exit fullscreen camera' : 'Open fullscreen camera'}><Icon name={fullScreen ? 'collapse' : 'expand'} size={19} /></button></>}
-          {scanning && <div className="fullscreen-hud"><div className="fullscreen-status"><span className={`status-indicator ${scanning ? 'active' : ''}`} /><div><strong>{status}</strong><small>{progress.total > 0 ? `${percentage}% · ${progress.received}/${progress.total} frames` : tracking?.valid ? 'Fast scan active' : 'Searching full frame and center'}</small></div></div>{renderZoomControl('fullscreen-zoom')}<div className="fullscreen-actions"><button type="button" onClick={flipCamera} aria-label="Flip camera"><Icon name="flip" size={18} /></button>{torchAvailable && <button type="button" className={torchOn ? 'is-active' : ''} onClick={toggleTorch} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'}><Icon name="flash" size={18} /></button>}<button type="button" onClick={toggleFullscreen} aria-label="Exit fullscreen camera"><Icon name="collapse" size={18} /></button><button type="button" className="pause" onClick={stopFullscreenScanner} aria-label="Pause scanning"><Icon name="pause" size={17} /></button></div></div>}
+          {scanning && <><div className="vision-assist-badge" title={visionMode === 'native' ? 'Native multi-scale QR detection' : 'Adaptive ZXing QR detection'}><span>✦</span> SMART VISION <em>{visionMode === 'native' ? 'MULTI-SCALE' : 'ADAPTIVE'}</em></div><button type="button" className="fullscreen-button" onClick={toggleFullscreen} aria-label={fullScreen ? 'Exit fullscreen camera' : 'Open fullscreen camera'}><Icon name={fullScreen ? 'collapse' : 'expand'} size={19} /></button></>}
+          {scanning && <div className="fullscreen-hud"><div className="fullscreen-status"><span className={`status-indicator ${scanning ? 'active' : ''}`} /><div><strong>{status}</strong><small>{progress.total > 0 ? `${percentage}% · ${progress.received}/${progress.total} frames` : visionMode === 'native' ? (tracking?.valid ? 'Native multi-scale · locked' : 'Native multi-scale scan') : 'Adaptive ZXing scan'}</small></div></div>{renderZoomControl('fullscreen-zoom')}<div className="fullscreen-actions"><button type="button" onClick={flipCamera} aria-label="Flip camera"><Icon name="flip" size={18} /></button>{torchAvailable && <button type="button" className={torchOn ? 'is-active' : ''} onClick={toggleTorch} aria-label={torchOn ? 'Turn torch off' : 'Turn torch on'}><Icon name="flash" size={18} /></button>}<button type="button" onClick={toggleFullscreen} aria-label="Exit fullscreen camera"><Icon name="collapse" size={18} /></button><button type="button" className="pause" onClick={stopFullscreenScanner} aria-label="Pause scanning"><Icon name="pause" size={17} /></button></div></div>}
           {!scanning && <div className="camera-placeholder"><span className="camera-icon"><Icon name="camera" size={30} /></span><strong>Camera ready</strong></div>}
         </div>
       )}
@@ -583,13 +667,13 @@ export default function Receiver({ active = true }) {
 
       {!result && receiveMode === 'camera' && <div className="control-row receiver-controls"><button className="primary-button" onClick={() => scanning ? pauseScanner() : startScanner(cameraFacing, hasPartialTransfer)}><Icon name={scanning ? 'pause' : 'camera'} size={18} /> {scanning ? 'Pause' : hasPartialTransfer ? 'Resume' : 'Start scanning'}</button>{scanning && <button className="secondary-button" onClick={flipCamera}><Icon name="flip" size={18} /> Flip camera</button>}{scanning && torchAvailable && <button className={`secondary-button ${torchOn ? 'is-active' : ''}`} onClick={toggleTorch} aria-pressed={torchOn}><Icon name="flash" size={18} /> {torchOn ? 'Torch on' : 'Torch'}</button>}</div>}
 
-      {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA</span><strong>{cameraQuality.label}</strong>{nativeFastScan && <em className="native-fast">✦ Multi-scale detection</em>}</div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div className="camera-metrics"><small>{cameraQuality.score}% signal</small><small>Sender speed: <strong>{cameraQuality.recommendation}</strong></small></div>{renderZoomControl()}</div>}
+      {!result && cameraQuality && scanning && <div className="calibration-card"><div><span>CAMERA</span><strong>{cameraQuality.label}</strong>{visionMode && <em className="native-fast">✦ {visionMode === 'native' ? 'Native multi-scale' : 'Adaptive scan'}</em>}</div><div className="quality-meter"><i style={{ width: `${cameraQuality.score}%` }} /></div><div className="camera-metrics"><small>{cameraQuality.score}% signal</small><small>Sender speed: <strong>{cameraQuality.recommendation}</strong></small></div>{renderZoomControl()}</div>}
       {!result && importSummary && <div className="import-summary"><Icon name="image" size={16} /> {importSummary}</div>}
 
       {!result && <div className="status-card" aria-live="polite"><div className="status-line"><div><span className={`status-indicator ${scanning || importing ? 'active' : ''}`} /><strong>{status}</strong></div>{progress.total > 0 && <span>{percentage}%</span>}</div>{progress.total > 0 && <><div className="progress-track"><div className="progress-fill" style={{ width: `${percentage}%` }} /></div><div className="frame-map" aria-label={`${progress.received} of ${progress.total} frames available`}>{frameMap.map((frameState, index) => <span className={frameState} key={index} />)}</div><div className="receive-metrics"><small>{progress.direct} scanned{progress.recovery > 0 ? ` + ${progress.recovery} recovered` : ''} · {progress.total - progress.received} missing</small>{scanRate > 0 && <small>{scanRate.toFixed(1)} frames/s · ~{remainingSeconds}s left</small>}</div></>}</div>}
       {error && <div className="error-box" role="alert">{error}</div>}
 
-      {result && <div className="result-card"><div className="success-orbit"><Icon name="shield" size={32} /></div><div className="success-badge">✓ SHA-256 verified</div><h3>{result.kind === 'text' ? 'Received text' : (result.name || 'Received file')}</h3><p>{formatBytes(result.bytes.length)} · offline</p>{result.kind === 'text' ? <><textarea ref={resultTextRef} className="text-input result-text" readOnly value={textResult} rows={8} /><button className="primary-button full" onClick={copyText}><Icon name="copy" size={18} /> {copied ? 'Copied!' : 'Copy text'}</button></> : <button className="primary-button full" onClick={saveResult}><Icon name="download" size={18} /> Save file</button>}</div>}
+      {result && <div className="result-card"><div className="success-orbit"><Icon name="shield" size={32} /></div><div className="success-badge">✓ SHA-256 verified</div><h3>{result.kind === 'text' ? 'Received text' : (result.name || 'Received file')}</h3><p>{formatBytes(result.bytes.length)} · offline</p>{result.kind === 'text' ? <><textarea ref={resultTextRef} className="text-input result-text" readOnly value={textResult} rows={8} aria-label="Received text" /><button className="primary-button full" onClick={copyText}><Icon name="copy" size={18} /> {copied ? 'Copied!' : 'Copy text'}</button></> : <button className="primary-button full" onClick={saveResult}><Icon name="download" size={18} /> Save file</button>}</div>}
     </section>
   )
 }

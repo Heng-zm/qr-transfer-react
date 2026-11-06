@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react'
 import QRCodeView from './QRCodeView.jsx'
-import { createTransfer, formatBytes } from './protocol.js'
+import { createTransfer, formatBytes, MAX_TRANSFER_BYTES } from './protocol.js'
 
 const encoder = new TextEncoder()
-const FILE_LIMIT = 2 * 1024 * 1024
 
 function Icon({ name, size = 20 }) {
   const paths = {
@@ -19,7 +18,7 @@ function Icon({ name, size = 20 }) {
   return <svg className="icon" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{paths[name]}</svg>
 }
 
-export default function Sender() {
+export default function Sender({ active = true }) {
   const [mode, setMode] = useState('text')
   const [text, setText] = useState('')
   const [file, setFile] = useState(null)
@@ -35,16 +34,16 @@ export default function Sender() {
   const [wakeActive, setWakeActive] = useState(false)
 
   useEffect(() => {
-    if (!transfer || !playing || transfer.frames.length <= 1) return
+    if (!active || !transfer || !playing || transfer.frames.length <= 1) return
     const timer = setInterval(() => setFrameIndex((current) => (current + 1) % transfer.frames.length), speed)
     return () => clearInterval(timer)
-  }, [transfer, playing, speed])
+  }, [active, transfer, playing, speed])
 
   useEffect(() => {
     let cancelled = false
 
     async function requestWakeLock() {
-      if (!transfer || !playing || !navigator.wakeLock || document.visibilityState !== 'visible') return
+      if (!active || !transfer || !playing || !navigator.wakeLock || document.visibilityState !== 'visible') return
       try {
         const lock = await navigator.wakeLock.request('screen')
         if (cancelled) { await lock.release(); return }
@@ -68,19 +67,19 @@ export default function Sender() {
       setWakeActive(false)
       lock?.release().catch(() => {})
     }
-  }, [transfer, playing])
+  }, [active, transfer, playing])
 
   const inputBytes = mode === 'text' ? encoder.encode(text).length : (file?.size || 0)
   const hasContent = mode === 'text' ? inputBytes > 0 : Boolean(file)
   const estimatedDataFrames = hasContent ? Math.max(1, Math.ceil(inputBytes / 480)) : 0
   const estimatedFrames = hasContent ? estimatedDataFrames + Math.ceil(estimatedDataFrames / 8) : 0
-  const canPrepare = hasContent && inputBytes <= FILE_LIMIT
-  const contentTooLarge = mode === 'text' && inputBytes > FILE_LIMIT
+  const canPrepare = hasContent && inputBytes <= MAX_TRANSFER_BYTES
+  const contentTooLarge = mode === 'text' && inputBytes > MAX_TRANSFER_BYTES
 
   function chooseFile(nextFile) {
     setError('')
     if (!nextFile) return
-    if (nextFile.size > FILE_LIMIT) { setFile(null); setError('That file is over the 2 MB limit. Smaller files also scan much faster.'); return }
+    if (nextFile.size > MAX_TRANSFER_BYTES) { setFile(null); setError('That file is over the 2 MB limit. Smaller files also scan much faster.'); return }
     setFile(nextFile)
   }
 

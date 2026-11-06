@@ -121,8 +121,11 @@ h1 { margin: 0; font-size: 1.08rem; letter-spacing: -.03em; }
 .confidence-meter.foreign i { background: #ffbe50; box-shadow: 0 0 8px #ffbe50; }
 .auto-zoom-badge { position: absolute; top: 13px; left: 13px; display: flex; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid rgba(255,255,255,.18); border-radius: 99px; background: rgba(7,12,5,.72); color: rgba(255,255,255,.72); font-size: .62rem; font-weight: 800; letter-spacing: .08em; backdrop-filter: blur(8px); }
 .auto-zoom-badge strong { color: #c6ff7d; font-size: .7rem; font-variant-numeric: tabular-nums; }
-.vision-assist-badge { position: absolute; left: 14px; bottom: 27px; display: flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid rgba(104,207,255,.32); border-radius: 99px; background: rgba(6,12,16,.75); color: #9edcff; font-size: .6rem; font-weight: 850; letter-spacing: .08em; backdrop-filter: blur(8px); }
-.vision-assist-badge span { font-size: .78rem; color: #c6ff7d; }
+.vision-assist-badge { position: absolute; left: 14px; bottom: 27px; display: flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1px solid rgba(104,207,255,.32); border-radius: 99px; background: rgba(6,12,16,.75); color: #9edcff; font-size: .6rem; font-weight: 850; letter-spacing: .08em; backdrop-filter: blur(8px); transition: border-color .24s ease, color .24s ease; }
+.vision-assist-badge span { font-size: .78rem; color: #c6ff7d; animation: pulse 1.6s ease-in-out infinite; }
+.vision-assist-badge em { padding: 2px 5px; border-radius: 99px; background: rgba(104,207,255,.13); color: rgba(158,220,255,.82); font-size: .5rem; font-style: normal; letter-spacing: .07em; }
+.camera-shell.has-lock .vision-assist-badge { border-color: rgba(168,243,74,.4); color: #c6ff7d; }
+.camera-shell.has-lock .vision-assist-badge em { background: rgba(168,243,74,.13); color: #d6ff9e; }
 .fullscreen-button { position: absolute; right: 14px; bottom: 25px; width: 39px; height: 39px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(255,255,255,.22); border-radius: 11px; background: rgba(7,12,5,.78); color: #fff; backdrop-filter: blur(8px); }
 .fullscreen-button:hover { border-color: rgba(168,243,74,.62); color: #c6ff7d; }
 .fullscreen-hud { display: none; }

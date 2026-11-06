@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from 'react'
+import { Component, lazy, Suspense, useEffect, useState } from 'react'
 
 const Sender = lazy(() => import('./Sender.jsx'))
 const Receiver = lazy(() => import('./Receiver.jsx'))
@@ -24,10 +24,21 @@ function PanelLoader() {
   return <div className="panel panel-loader" role="status"><span className="spinner" /><span>Loading tools</span></div>
 }
 
+class TabErrorBoundary extends Component {
+  state = { failed: false }
+  static getDerivedStateFromError() { return { failed: true } }
+  componentDidCatch(error, info) { console.error('Tab failed to load', error, info) }
+  render() {
+    if (!this.state.failed) return this.props.children
+    return <div className="panel"><div className="error-box" role="alert">This tool failed to load. <button className="ghost-button compact" onClick={() => window.location.reload()}>Reload</button></div></div>
+  }
+}
+
 export default function App() {
-  const [incomingWifiCode, setIncomingWifiCode] = useState(sharedWifiCode)
-  const [tab, setTab] = useState(() => sharedWifiCode() ? 'wifi' : 'send')
-  const [loadedTabs, setLoadedTabs] = useState(() => new Set([sharedWifiCode() ? 'wifi' : 'send']))
+  const [initialWifiCode] = useState(sharedWifiCode)
+  const [incomingWifiCode, setIncomingWifiCode] = useState(initialWifiCode)
+  const [tab, setTab] = useState(initialWifiCode ? 'wifi' : 'send')
+  const [loadedTabs, setLoadedTabs] = useState(() => new Set([initialWifiCode ? 'wifi' : 'send']))
   const [theme, setTheme] = useState(() => {
     try {
       return localStorage.getItem('qr-theme') || (matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark')
@@ -85,9 +96,9 @@ export default function App() {
         <button className={tab === 'wifi' ? 'active' : ''} onClick={() => openTab('wifi')} aria-pressed={tab === 'wifi'}><Icon name="wifi" /><strong>Wi-Fi</strong></button>
       </nav>
 
-      {loadedTabs.has('send') && <div className="content-enter" hidden={tab !== 'send'}><Suspense fallback={<PanelLoader />}><Sender /></Suspense></div>}
-      {loadedTabs.has('receive') && <div className="content-enter" hidden={tab !== 'receive'}><Suspense fallback={<PanelLoader />}><Receiver active={tab === 'receive'} /></Suspense></div>}
-      {loadedTabs.has('wifi') && <div className="content-enter" hidden={tab !== 'wifi'}><Suspense fallback={<PanelLoader />}><WifiTransfer active={tab === 'wifi'} sharedPairCode={incomingWifiCode} onSharedPairConsumed={() => { setIncomingWifiCode(''); window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`) }} /></Suspense></div>}
+      {loadedTabs.has('send') && <div className="content-enter" hidden={tab !== 'send'}><TabErrorBoundary><Suspense fallback={<PanelLoader />}><Sender active={tab === 'send'} /></Suspense></TabErrorBoundary></div>}
+      {loadedTabs.has('receive') && <div className="content-enter" hidden={tab !== 'receive'}><TabErrorBoundary><Suspense fallback={<PanelLoader />}><Receiver active={tab === 'receive'} /></Suspense></TabErrorBoundary></div>}
+      {loadedTabs.has('wifi') && <div className="content-enter" hidden={tab !== 'wifi'}><TabErrorBoundary><Suspense fallback={<PanelLoader />}><WifiTransfer active={tab === 'wifi'} sharedPairCode={incomingWifiCode} onSharedPairConsumed={() => { setIncomingWifiCode(''); window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}`) }} /></Suspense></TabErrorBoundary></div>}
     </main>
   )
 }
